@@ -32,13 +32,13 @@
   "include": [
     "src/**/*.ts",
     "src/**/*.tsx",
-    "src/**/*.vue",
-    "vite.config.ts",
-    "vitest.config.ts"
+    "src/**/*.vue"
   ],
   "exclude": [
     "node_modules",
-    "dist"
+    "dist",
+    "vite.config.ts",
+    "vitest.config.ts"
   ],
   "references": [
     { "path": "./tsconfig.node.json" }
