@@ -168,13 +168,13 @@ This implementation plan breaks down the AutoQA Pilot system into incremental de
     - Implement drag-and-drop for project organization
     - _Requirements: 1.4, 1.5, 1.6_
 
-  - [ ]* 7.3 Write integration tests for authentication flow
+  - [x]* 7.3 Write integration tests for authentication flow
     - Test complete OAuth flow end-to-end
     - Test session persistence and expiry
     - Test error scenarios and recovery
     - _Requirements: 1.1, 1.2, 1.3_
 
-  - [ ]* 7.4 Write unit tests for project management UI
+  - [x]* 7.4 Write unit tests for project management UI
     - Test form validation and submission
     - Test CRUD operations with proper error handling
     - Test loading states and user feedback
@@ -224,7 +224,7 @@ This implementation plan breaks down the AutoQA Pilot system into incremental de
     - Add assertion management and validation
     - _Requirements: 2.2, 2.3, 2.4_
 
-  - [ ]* 9.2 Write component tests for scenario editor
+  - [x]* 9.2 Write component tests for scenario editor
     - Test drag-and-drop functionality
     - Test real-time preview updates
     - Test code editing and validation
@@ -241,19 +241,19 @@ This implementation plan breaks down the AutoQA Pilot system into incremental de
     - Implement JavaScript error capture with stack traces
     - _Requirements: 3.1, 3.2, 3.3, 3.4, 3.5_
 
-  - [ ]* 10.2 Write property tests for crawler functionality
+  - [x]* 10.2 Write property tests for crawler functionality
     - **Property 5: Site Scanning Completeness**
     - **Validates: Requirements 3.1, 3.2, 3.5**
     - Test that crawler generates comprehensive site maps
     - Verify robots.txt compliance across all scenarios
 
-  - [ ]* 10.3 Write property tests for error detection
+  - [x]* 10.3 Write property tests for error detection
     - **Property 6: Error Detection and Reporting**
     - **Validates: Requirements 3.3, 3.4**
     - Test that broken links are detected and reported with URLs
     - Verify JavaScript errors are captured with stack traces
 
-  - [ ]* 10.4 Write unit tests for crawler edge cases
+  - [x]* 10.4 Write unit tests for crawler edge cases
     - Test timeout handling and recovery
     - Test memory management for large sites
     - Test duplicate URL detection

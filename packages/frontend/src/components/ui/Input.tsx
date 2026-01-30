@@ -4,10 +4,11 @@ import { cn } from '../../utils/cn';
 interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
   label?: string;
   error?: string;
+  helperText?: string;
 }
 
 export const Input = forwardRef<HTMLInputElement, InputProps>(
-  ({ className, label, error, id, ...props }, ref) => {
+  ({ className, label, error, helperText, id, ...props }, ref) => {
     const inputId = id || label?.toLowerCase().replace(/\s+/g, '-');
 
     return (
@@ -30,6 +31,11 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
         {error && (
           <p className="text-sm text-red-600" role="alert">
             {error}
+          </p>
+        )}
+        {helperText && !error && (
+          <p className="text-sm text-gray-500">
+            {helperText}
           </p>
         )}
       </div>
