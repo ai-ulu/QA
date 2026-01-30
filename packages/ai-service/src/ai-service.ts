@@ -4,10 +4,13 @@ import {
   GenerationOptions, 
   GenerationResult, 
   ValidationResult,
-  CodeGenerationRequest 
+  CodeGenerationRequest,
+  ConversionResult,
+  TestScenario
 } from './types';
 import { OpenAIProvider } from './providers/openai';
 import { ClaudeProvider } from './providers/claude';
+import { CodeConverter } from './services/code-converter';
 import { CircuitBreaker, CircuitBreakerOptions } from './utils/circuit-breaker';
 import { RateLimiter, RateLimiterOptions } from './utils/rate-limiter';
 import { logger } from './utils/logger';
@@ -19,6 +22,7 @@ export class AIService {
   private rateLimiter?: RateLimiter;
   private config: AIServiceConfig;
   private prompts: PlaywrightPrompts;
+  private codeConverter: CodeConverter;
 
   constructor(config: AIServiceConfig) {
     this.config = config;
@@ -26,6 +30,7 @@ export class AIService {
     this.initializeProviders();
     this.initializeRateLimiter();
     this.initializeCircuitBreakers();
+    this.codeConverter = new CodeConverter(this);
   }
 
   private initializeProviders(): void {
@@ -211,5 +216,29 @@ export class AIService {
 
   resetRateLimiter(): void {
     this.rateLimiter?.reset();
+  }
+
+  // Code Converter Methods
+  async convertNaturalLanguageToCode(request: CodeGenerationRequest): Promise<ConversionResult> {
+    return this.codeConverter.convertNaturalLanguageToCode(request);
+  }
+
+  async optimizeCode(code: string, issues: string[]): Promise<GenerationResult> {
+    return this.codeConverter.optimizeCode(code, issues);
+  }
+
+  async enhanceScenario(scenario: TestScenario, requirements: string[]): Promise<TestScenario[]> {
+    return this.codeConverter.enhanceScenario(scenario, requirements);
+  }
+
+  // Utility Methods for Code Generation
+  async generateAssertions(action: string, element: string): Promise<GenerationResult> {
+    const prompt = this.prompts.buildAssertionGenerationPrompt(action, element);
+    return this.generateCode(prompt);
+  }
+
+  async optimizeSelector(selector: string, context: string): Promise<GenerationResult> {
+    const prompt = this.prompts.buildSelectorOptimizationPrompt(selector, context);
+    return this.generateCode(prompt);
   }
 }

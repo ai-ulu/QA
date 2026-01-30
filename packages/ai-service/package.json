@@ -7,9 +7,12 @@
   "scripts": {
     "build": "tsc",
     "dev": "tsx watch src/index.ts",
-    "test": "jest",
-    "test:unit": "jest --selectProjects unit",
-    "test:property": "jest --selectProjects property",
+    "demo": "tsx src/examples/basic-usage.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:ui": "vitest --ui",
+    "test:unit": "vitest run --grep unit",
+    "test:property": "vitest run --grep property",
     "lint": "eslint src/**/*.ts",
     "lint:fix": "eslint src/**/*.ts --fix",
     "type-check": "tsc --noEmit",
@@ -27,8 +30,10 @@
   },
   "devDependencies": {
     "@types/uuid": "^9.0.7",
+    "@vitest/ui": "^4.0.18",
     "fast-check": "^3.15.0",
-    "tsx": "^4.6.2"
+    "tsx": "^4.6.2",
+    "vitest": "^0.34.6"
   },
   "keywords": [
     "ai",

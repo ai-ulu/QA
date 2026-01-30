@@ -197,19 +197,19 @@ This implementation plan breaks down the AutoQA Pilot system into incremental de
     - Implement retry logic with exponential backoff
     - _Requirements: 2.1, 2.2, 2.5_
 
-  - [ ]* 8.3 Write property tests for AI code generation
+  - [x]* 8.3 Write property tests for AI code generation
     - **Property 3: Natural Language to Code Generation**
     - **Validates: Requirements 2.1, 2.5**
     - Test that generated code is syntactically valid Playwright code
     - Verify all generated code can be executed without compilation errors
 
-  - [ ]* 8.4 Write property tests for test scenario manipulation
+  - [x]* 8.4 Write property tests for test scenario manipulation
     - **Property 4: Test Scenario Manipulation Consistency**
     - **Validates: Requirements 2.2, 2.3, 2.4**
     - Test that editing scenarios maintains original intent
     - Verify drag-and-drop operations produce valid scenarios
 
-  - [ ]* 8.5 Write unit tests for AI service edge cases
+  - [x]* 8.5 Write unit tests for AI service edge cases
     - Test API timeout and failure scenarios
     - Test malformed input handling
     - Test rate limit exceeded scenarios
