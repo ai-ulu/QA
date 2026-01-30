@@ -66,7 +66,7 @@ export class OpenAIProvider implements AIProvider {
       
       const result: GenerationResult = {
         code: parsed.code,
-        explanation: parsed.explanation,
+        explanation: parsed.explanation || undefined,
         confidence: parsed.confidence,
         tokensUsed: response.usage?.total_tokens || 0,
         model: response.model,
@@ -81,8 +81,8 @@ export class OpenAIProvider implements AIProvider {
 
       return result;
     } catch (error) {
-      logger.error('OpenAI code generation failed', { error, prompt });
-      throw new Error(`OpenAI generation failed: ${error.message}`);
+      logger.error('OpenAI code generation failed', { error: (error as Error).message, prompt });
+      throw new Error(`OpenAI generation failed: ${(error as Error).message}`);
     }
   }
 
@@ -131,10 +131,10 @@ export class OpenAIProvider implements AIProvider {
         suggestions: result.suggestions || []
       };
     } catch (error) {
-      logger.error('OpenAI code validation failed', { error, code: code.substring(0, 100) });
+      logger.error('OpenAI code validation failed', { error: (error as Error).message, code: code.substring(0, 100) });
       return {
         isValid: false,
-        errors: [`Validation failed: ${error.message}`],
+        errors: [`Validation failed: ${(error as Error).message}`],
         warnings: [],
         suggestions: []
       };

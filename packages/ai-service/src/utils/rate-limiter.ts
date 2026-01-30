@@ -11,13 +11,11 @@ export class RateLimiter {
 
   constructor(options: RateLimiterOptions) {
     this.tokenLimiter = new RateLimiterMemory({
-      keyGenerator: () => 'tokens',
       points: options.tokensPerMinute,
       duration: 60, // 1 minute
     });
 
     this.requestLimiter = new RateLimiterMemory({
-      keyGenerator: () => 'requests',
       points: options.requestsPerMinute,
       duration: 60, // 1 minute
     });
@@ -26,7 +24,7 @@ export class RateLimiter {
   async checkTokenLimit(tokensToConsume: number): Promise<void> {
     try {
       await this.tokenLimiter.consume('tokens', tokensToConsume);
-    } catch (rejRes) {
+    } catch (rejRes: any) {
       const remainingTime = Math.round(rejRes.msBeforeNext / 1000);
       throw new Error(`Token rate limit exceeded. Try again in ${remainingTime} seconds.`);
     }
@@ -35,7 +33,7 @@ export class RateLimiter {
   async checkRequestLimit(): Promise<void> {
     try {
       await this.requestLimiter.consume('requests', 1);
-    } catch (rejRes) {
+    } catch (rejRes: any) {
       const remainingTime = Math.round(rejRes.msBeforeNext / 1000);
       throw new Error(`Request rate limit exceeded. Try again in ${remainingTime} seconds.`);
     }

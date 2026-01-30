@@ -15,7 +15,7 @@ export interface CircuitBreakerOptions {
 export class CircuitBreaker extends EventEmitter {
   private state: CircuitState = CircuitState.CLOSED;
   private failureCount = 0;
-  private lastFailureTime?: number;
+  private lastFailureTime: number | undefined;
   private successCount = 0;
 
   constructor(private options: CircuitBreakerOptions) {

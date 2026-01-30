@@ -22,9 +22,8 @@
     "uuid": "^9.0.1"
   },
   "devDependencies": {
-    "@types/uuid": "^9.0.7"
-  },
-  "peerDependencies": {
-    "@autoqa/testing-utils": "^1.0.0"
+    "@types/uuid": "^9.0.7",
+    "fast-check": "^3.15.0",
+    "@types/jest": "^29.5.8"
   }
 }

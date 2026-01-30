@@ -2,11 +2,8 @@
 // Tests specific examples, edge cases, and error conditions
 
 import { prisma, withTransaction, withRetry, checkDatabaseHealth, getConnectionPoolStats } from '../client';
-import { TestDataIsolation } from '@autoqa/testing-utils';
 
 describe('Database Edge Cases Unit Tests', () => {
-  let testIsolation: TestDataIsolation;
-  
   beforeEach(() => {
     testIsolation = new TestDataIsolation();
   });

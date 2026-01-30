@@ -36,9 +36,8 @@
     "@types/pg": "^8.10.7",
     "@types/uuid": "^9.0.7",
     "prisma": "^5.7.1",
-    "tsx": "^4.6.2"
-  },
-  "peerDependencies": {
-    "@autoqa/testing-utils": "^1.0.0"
+    "tsx": "^4.6.2",
+    "fast-check": "^3.15.0",
+    "@types/jest": "^29.5.8"
   }
 }

@@ -55,13 +55,14 @@ User request: ${prompt}`
       });
 
       const content = response.content[0];
-      if (content.type !== 'text') {
+      if (!content || content.type !== 'text') {
         throw new Error('Unexpected response type from Claude');
       }
 
       // Extract JSON from response (Claude might wrap it in markdown)
-      const jsonMatch = content.text.match(/```json\n([\s\S]*?)\n```/) || 
-                       content.text.match(/\{[\s\S]*\}/);
+      const textContent = 'text' in content ? content.text : '';
+      const jsonMatch = textContent.match(/```json\n([\s\S]*?)\n```/) || 
+                       textContent.match(/\{[\s\S]*\}/);
       
       if (!jsonMatch) {
         throw new Error('No JSON found in Claude response');
@@ -71,7 +72,7 @@ User request: ${prompt}`
       
       const result: GenerationResult = {
         code: parsed.code,
-        explanation: parsed.explanation,
+        explanation: parsed.explanation || undefined,
         confidence: parsed.confidence,
         tokensUsed: response.usage.input_tokens + response.usage.output_tokens,
         model: response.model,
@@ -86,8 +87,8 @@ User request: ${prompt}`
 
       return result;
     } catch (error) {
-      logger.error('Claude code generation failed', { error, prompt });
-      throw new Error(`Claude generation failed: ${error.message}`);
+      logger.error('Claude code generation failed', { error: (error as Error).message, prompt });
+      throw new Error(`Claude generation failed: ${(error as Error).message}`);
     }
   }
 
@@ -123,13 +124,14 @@ ${code}
       });
 
       const content = response.content[0];
-      if (content.type !== 'text') {
+      if (!content || content.type !== 'text') {
         throw new Error('Unexpected response type from Claude');
       }
 
       // Extract JSON from response
-      const jsonMatch = content.text.match(/```json\n([\s\S]*?)\n```/) || 
-                       content.text.match(/\{[\s\S]*\}/);
+      const textContent = 'text' in content ? content.text : '';
+      const jsonMatch = textContent.match(/```json\n([\s\S]*?)\n```/) || 
+                       textContent.match(/\{[\s\S]*\}/);
       
       if (!jsonMatch) {
         throw new Error('No JSON found in Claude validation response');
@@ -144,10 +146,10 @@ ${code}
         suggestions: result.suggestions || []
       };
     } catch (error) {
-      logger.error('Claude code validation failed', { error, code: code.substring(0, 100) });
+      logger.error('Claude code validation failed', { error: (error as Error).message, code: code.substring(0, 100) });
       return {
         isValid: false,
-        errors: [`Validation failed: ${error.message}`],
+        errors: [`Validation failed: ${(error as Error).message}`],
         warnings: [],
         suggestions: []
       };

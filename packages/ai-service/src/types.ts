@@ -13,7 +13,7 @@ export interface GenerationOptions {
 
 export interface GenerationResult {
   code: string;
-  explanation?: string;
+  explanation?: string | undefined;
   confidence: number;
   tokensUsed: number;
   model: string;
@@ -66,18 +66,24 @@ export interface TestScenario {
 export interface TestStep {
   id: string;
   type: 'navigate' | 'click' | 'type' | 'wait' | 'screenshot' | 'custom';
-  selector?: string;
-  value?: string;
+  selector?: string | undefined;
+  value?: string | undefined;
   description: string;
-  timeout?: number;
+  timeout?: number | undefined;
 }
 
 export interface TestAssertion {
   id: string;
   type: 'visible' | 'text' | 'attribute' | 'count' | 'url' | 'custom';
-  selector?: string;
+  selector?: string | undefined;
   expected: string;
   description: string;
+}
+
+export interface ConversionResult extends GenerationResult {
+  scenario?: TestScenario | undefined;
+  syntaxValid: boolean;
+  suggestions: string[];
 }
 
 export interface CodeGenerationRequest {

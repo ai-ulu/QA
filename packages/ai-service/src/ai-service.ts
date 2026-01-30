@@ -8,8 +8,8 @@ import {
 } from './types';
 import { OpenAIProvider } from './providers/openai';
 import { ClaudeProvider } from './providers/claude';
-import { CircuitBreaker } from './utils/circuit-breaker';
-import { RateLimiter } from './utils/rate-limiter';
+import { CircuitBreaker, CircuitBreakerOptions } from './utils/circuit-breaker';
+import { RateLimiter, RateLimiterOptions } from './utils/rate-limiter';
 import { logger } from './utils/logger';
 import { PlaywrightPrompts } from './prompts/playwright';
 
@@ -52,15 +52,19 @@ export class AIService {
 
   private initializeRateLimiter(): void {
     if (this.config.rateLimiter) {
-      this.rateLimiter = new RateLimiter(this.config.rateLimiter);
+      const options: RateLimiterOptions = {
+        tokensPerMinute: this.config.rateLimiter.tokensPerMinute || 1000,
+        requestsPerMinute: this.config.rateLimiter.requestsPerMinute || 60
+      };
+      this.rateLimiter = new RateLimiter(options);
     }
   }
 
   private initializeCircuitBreakers(): void {
-    const cbConfig = this.config.circuitBreaker || {
-      failureThreshold: 5,
-      resetTimeout: 60000,
-      monitoringPeriod: 60000
+    const cbConfig: CircuitBreakerOptions = {
+      failureThreshold: this.config.circuitBreaker?.failureThreshold || 5,
+      resetTimeout: this.config.circuitBreaker?.resetTimeout || 60000,
+      monitoringPeriod: this.config.circuitBreaker?.monitoringPeriod || 60000
     };
 
     for (const providerName of this.providers.keys()) {
@@ -102,7 +106,7 @@ export class AIService {
     try {
       return await this.executeWithProvider(primaryProvider, prompt, options);
     } catch (error) {
-      logger.warn(`Primary provider ${primaryProvider} failed`, { error });
+      logger.warn(`Primary provider ${primaryProvider} failed`, { error: (error as Error).message });
 
       // Try fallback provider if available
       if (fallbackProvider && fallbackProvider !== primaryProvider) {
@@ -150,7 +154,7 @@ export class AIService {
       } catch (error) {
         logger.error('Code generation failed', {
           provider: providerName,
-          error: error.message,
+          error: (error as Error).message,
           duration: Date.now() - startTime
         });
         throw error;
