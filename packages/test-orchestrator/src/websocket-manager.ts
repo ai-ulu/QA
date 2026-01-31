@@ -2,132 +2,334 @@
  * WebSocket Manager for Real-time Communication
  * **Validates: Requirements 5.3**
  * 
- * Provides real-time execution monitoring with:
- * - WebSocket connections for live updates
- * - Client authentication and authorization
- * - Message broadcasting and targeted messaging
- * - Connection management and cleanup
+ * Manages WebSocket connections for real-time test execution updates
  */
 
-import WebSocket from 'ws';
 import { EventEmitter } from 'events';
-import { IncomingMessage } from 'http';
-import { v4 as uuidv4 } from 'uuid';
+import WebSocket from 'ws';
 import { logger } from './utils/logger';
-
-export interface WebSocketClient {
-  id: string;
-  ws: WebSocket;
-  userId?: string;
-  projectId?: string;
-  subscriptions: Set<string>;
-  lastPing: Date;
-  authenticated: boolean;
-}
 
 export interface WebSocketMessage {
   type: string;
   data: any;
   timestamp: Date;
-  clientId?: string;
+  executionId?: string;
+}
+
+export interface ClientConnection {
+  id: string;
+  ws: WebSocket;
+  userId?: string;
+  subscriptions: Set<string>;
+  lastPing: Date;
 }
 
 export class WebSocketManager extends EventEmitter {
-  private server: WebSocket.Server;
-  private clients: Map<string, WebSocketClient>;
-  private pingInterval: NodeJS.Timeout;
+  private server: WebSocket.Server | null = null;
+  private clients: Map<string, ClientConnection> = new Map();
+  private pingInterval: NodeJS.Timeout | null = null;
 
   constructor(port: number = 8080) {
     super();
-    
-    this.clients = new Map();
-    
-    // Create WebSocket server
-    this.server = new WebSocket.Server({
+    this.setupWebSocketServer(port);
+    this.startPingInterval();
+  }
+
+  /**
+   * Setup WebSocket server
+   */
+  private setupWebSocketServer(port: number): void {
+    this.server = new WebSocket.Server({ 
       port,
-      verifyClient: this.verifyClient.bind(this),
+      perMessageDeflate: false,
+      maxPayload: 1024 * 1024 // 1MB max message size
     });
 
-    this.setupServerEvents();
-    this.startPingInterval();
+    this.server.on('connection', (ws, request) => {
+      this.handleConnection(ws, request);
+    });
+
+    this.server.on('error', (error) => {
+      logger.error('WebSocket server error', { error: error.message });
+    });
 
     logger.info('WebSocket server started', { port });
   }
 
   /**
-   * Broadcast message to all connected clients
+   * Handle new WebSocket connection
    */
-  broadcast(type: string, data: any, filter?: (client: WebSocketClient) => boolean): void {
-    const message: WebSocketMessage = {
-      type,
-      data,
-      timestamp: new Date(),
+  private handleConnection(ws: WebSocket, request: any): void {
+    const clientId = this.generateClientId();
+    const client: ClientConnection = {
+      id: clientId,
+      ws,
+      subscriptions: new Set(),
+      lastPing: new Date()
     };
 
-    const messageStr = JSON.stringify(message);
-    let sentCount = 0;
+    this.clients.set(clientId, client);
 
-    for (const client of this.clients.values()) {
-      if (client.ws.readyState === WebSocket.OPEN) {
-        if (!filter || filter(client)) {
-          client.ws.send(messageStr);
-          sentCount++;
-        }
+    logger.info('WebSocket client connected', { 
+      clientId, 
+      clientCount: this.clients.size 
+    });
+
+    // Setup message handler
+    ws.on('message', (data) => {
+      this.handleMessage(clientId, data);
+    });
+
+    // Setup close handler
+    ws.on('close', (code, reason) => {
+      this.handleDisconnection(clientId, code, reason);
+    });
+
+    // Setup error handler
+    ws.on('error', (error) => {
+      logger.error('WebSocket client error', { 
+        clientId, 
+        error: error.message 
+      });
+    });
+
+    // Setup ping/pong
+    ws.on('pong', () => {
+      const client = this.clients.get(clientId);
+      if (client) {
+        client.lastPing = new Date();
       }
+    });
+
+    // Send welcome message
+    this.sendToClient(clientId, {
+      type: 'welcome',
+      data: { clientId },
+      timestamp: new Date()
+    });
+  }
+
+  /**
+   * Handle incoming message from client
+   */
+  private handleMessage(clientId: string, data: WebSocket.Data): void {
+    const client = this.clients.get(clientId);
+    if (!client) {
+      return;
     }
 
-    logger.debug('Broadcast message sent', {
-      type,
-      clientCount: sentCount,
-      totalClients: this.clients.size,
+    try {
+      const message = JSON.parse(data.toString());
+      
+      logger.debug('WebSocket message received', { 
+        clientId, 
+        type: message.type 
+      });
+
+      switch (message.type) {
+        case 'subscribe':
+          this.handleSubscription(clientId, message.data);
+          break;
+        case 'unsubscribe':
+          this.handleUnsubscription(clientId, message.data);
+          break;
+        case 'authenticate':
+          this.handleAuthentication(clientId, message.data);
+          break;
+        case 'ping':
+          this.sendToClient(clientId, {
+            type: 'pong',
+            data: { timestamp: new Date() },
+            timestamp: new Date()
+          });
+          break;
+        default:
+          logger.warn('Unknown WebSocket message type', { 
+            clientId, 
+            type: message.type 
+          });
+      }
+    } catch (error) {
+      logger.error('Error parsing WebSocket message', { 
+        clientId, 
+        error: (error as Error).message 
+      });
+    }
+  }
+
+  /**
+   * Handle client disconnection
+   */
+  private handleDisconnection(clientId: string, code: number, reason: Buffer): void {
+    const client = this.clients.get(clientId);
+    if (client) {
+      this.clients.delete(clientId);
+      
+      logger.info('WebSocket client disconnected', { 
+        clientId, 
+        code, 
+        reason: reason.toString(),
+        clientCount: this.clients.size 
+      });
+    }
+  }
+
+  /**
+   * Handle subscription request
+   */
+  private handleSubscription(clientId: string, data: any): void {
+    const client = this.clients.get(clientId);
+    if (!client) {
+      return;
+    }
+
+    const { executionId, userId } = data;
+
+    if (executionId) {
+      client.subscriptions.add(`execution:${executionId}`);
+      logger.debug('Client subscribed to execution', { clientId, executionId });
+    }
+
+    if (userId) {
+      client.subscriptions.add(`user:${userId}`);
+      client.userId = userId;
+      logger.debug('Client subscribed to user updates', { clientId, userId });
+    }
+
+    this.sendToClient(clientId, {
+      type: 'subscription-confirmed',
+      data: { executionId, userId },
+      timestamp: new Date()
     });
+  }
+
+  /**
+   * Handle unsubscription request
+   */
+  private handleUnsubscription(clientId: string, data: any): void {
+    const client = this.clients.get(clientId);
+    if (!client) {
+      return;
+    }
+
+    const { executionId, userId } = data;
+
+    if (executionId) {
+      client.subscriptions.delete(`execution:${executionId}`);
+      logger.debug('Client unsubscribed from execution', { clientId, executionId });
+    }
+
+    if (userId) {
+      client.subscriptions.delete(`user:${userId}`);
+      logger.debug('Client unsubscribed from user updates', { clientId, userId });
+    }
+
+    this.sendToClient(clientId, {
+      type: 'unsubscription-confirmed',
+      data: { executionId, userId },
+      timestamp: new Date()
+    });
+  }
+
+  /**
+   * Handle authentication
+   */
+  private handleAuthentication(clientId: string, data: any): void {
+    const client = this.clients.get(clientId);
+    if (!client) {
+      return;
+    }
+
+    const { token, userId } = data;
+
+    // In a real implementation, validate the token
+    if (token && userId) {
+      client.userId = userId;
+      client.subscriptions.add(`user:${userId}`);
+      
+      this.sendToClient(clientId, {
+        type: 'authentication-success',
+        data: { userId },
+        timestamp: new Date()
+      });
+
+      logger.info('Client authenticated', { clientId, userId });
+    } else {
+      this.sendToClient(clientId, {
+        type: 'authentication-failed',
+        data: { error: 'Invalid credentials' },
+        timestamp: new Date()
+      });
+    }
   }
 
   /**
    * Send message to specific client
    */
-  sendToClient(clientId: string, type: string, data: any): boolean {
+  private sendToClient(clientId: string, message: WebSocketMessage): void {
     const client = this.clients.get(clientId);
     if (!client || client.ws.readyState !== WebSocket.OPEN) {
-      return false;
+      return;
     }
 
+    try {
+      client.ws.send(JSON.stringify(message));
+    } catch (error) {
+      logger.error('Error sending message to client', { 
+        clientId, 
+        error: (error as Error).message 
+      });
+    }
+  }
+
+  /**
+   * Broadcast message to all subscribed clients
+   */
+  broadcast(type: string, data: any, executionId?: string): void {
     const message: WebSocketMessage = {
       type,
       data,
       timestamp: new Date(),
-      clientId,
+      executionId
     };
 
-    client.ws.send(JSON.stringify(message));
-    return true;
+    const subscription = executionId ? `execution:${executionId}` : null;
+
+    for (const [clientId, client] of this.clients.entries()) {
+      if (client.ws.readyState !== WebSocket.OPEN) {
+        continue;
+      }
+
+      // Check if client is subscribed to this execution or broadcast to all
+      if (!subscription || client.subscriptions.has(subscription)) {
+        this.sendToClient(clientId, message);
+      }
+    }
+
+    logger.debug('Message broadcasted', { 
+      type, 
+      executionId, 
+      clientCount: this.clients.size 
+    });
   }
 
   /**
-   * Send message to clients subscribed to a specific execution
-   */
-  sendToSubscribers(executionId: string, type: string, data: any): void {
-    this.broadcast(type, data, (client) => 
-      client.subscriptions.has(executionId)
-    );
-  }
-
-  /**
-   * Send message to clients of a specific user
+   * Send message to specific user
    */
   sendToUser(userId: string, type: string, data: any): void {
-    this.broadcast(type, data, (client) => 
-      client.userId === userId
-    );
-  }
+    const message: WebSocketMessage = {
+      type,
+      data,
+      timestamp: new Date()
+    };
 
-  /**
-   * Send message to clients of a specific project
-   */
-  sendToProject(projectId: string, type: string, data: any): void {
-    this.broadcast(type, data, (client) => 
-      client.projectId === projectId
-    );
+    for (const [clientId, client] of this.clients.entries()) {
+      if (client.userId === userId && client.ws.readyState === WebSocket.OPEN) {
+        this.sendToClient(clientId, message);
+      }
+    }
+
+    logger.debug('Message sent to user', { userId, type });
   }
 
   /**
@@ -138,272 +340,16 @@ export class WebSocketManager extends EventEmitter {
   }
 
   /**
-   * Get authenticated client count
+   * Get clients subscribed to execution
    */
-  getAuthenticatedClientCount(): number {
-    return Array.from(this.clients.values()).filter(c => c.authenticated).length;
-  }
-
-  /**
-   * Get client statistics
-   */
-  getClientStats(): {
-    total: number;
-    authenticated: number;
-    byProject: Record<string, number>;
-  } {
-    const stats = {
-      total: this.clients.size,
-      authenticated: 0,
-      byProject: {} as Record<string, number>,
-    };
-
+  getExecutionSubscribers(executionId: string): number {
+    let count = 0;
     for (const client of this.clients.values()) {
-      if (client.authenticated) {
-        stats.authenticated++;
-      }
-
-      if (client.projectId) {
-        stats.byProject[client.projectId] = (stats.byProject[client.projectId] || 0) + 1;
+      if (client.subscriptions.has(`execution:${executionId}`)) {
+        count++;
       }
     }
-
-    return stats;
-  }
-
-  /**
-   * Setup server event handlers
-   */
-  private setupServerEvents(): void {
-    this.server.on('connection', (ws: WebSocket, request: IncomingMessage) => {
-      const clientId = uuidv4();
-      
-      const client: WebSocketClient = {
-        id: clientId,
-        ws,
-        subscriptions: new Set(),
-        lastPing: new Date(),
-        authenticated: false,
-      };
-
-      this.clients.set(clientId, client);
-
-      logger.info('WebSocket client connected', {
-        clientId,
-        remoteAddress: request.socket.remoteAddress,
-        userAgent: request.headers['user-agent'],
-      });
-
-      // Setup client event handlers
-      this.setupClientEvents(client);
-
-      // Send welcome message
-      this.sendToClient(clientId, 'connected', {
-        clientId,
-        serverTime: new Date(),
-      });
-    });
-
-    this.server.on('error', (error) => {
-      logger.error('WebSocket server error', { error: error.message });
-    });
-  }
-
-  /**
-   * Setup client event handlers
-   */
-  private setupClientEvents(client: WebSocketClient): void {
-    client.ws.on('message', (data: WebSocket.Data) => {
-      try {
-        const message = JSON.parse(data.toString());
-        this.handleClientMessage(client, message);
-      } catch (error) {
-        logger.warn('Invalid WebSocket message', {
-          clientId: client.id,
-          error: (error as Error).message,
-        });
-        
-        this.sendToClient(client.id, 'error', {
-          message: 'Invalid message format',
-        });
-      }
-    });
-
-    client.ws.on('pong', () => {
-      client.lastPing = new Date();
-    });
-
-    client.ws.on('close', (code: number, reason: string) => {
-      logger.info('WebSocket client disconnected', {
-        clientId: client.id,
-        code,
-        reason: reason.toString(),
-      });
-
-      this.clients.delete(client.id);
-      this.emit('client-disconnected', client);
-    });
-
-    client.ws.on('error', (error: Error) => {
-      logger.error('WebSocket client error', {
-        clientId: client.id,
-        error: error.message,
-      });
-    });
-  }
-
-  /**
-   * Handle client messages
-   */
-  private handleClientMessage(client: WebSocketClient, message: any): void {
-    const { type, data } = message;
-
-    switch (type) {
-      case 'authenticate':
-        this.handleAuthentication(client, data);
-        break;
-
-      case 'subscribe':
-        this.handleSubscription(client, data);
-        break;
-
-      case 'unsubscribe':
-        this.handleUnsubscription(client, data);
-        break;
-
-      case 'ping':
-        this.sendToClient(client.id, 'pong', { timestamp: new Date() });
-        break;
-
-      default:
-        logger.warn('Unknown message type', {
-          clientId: client.id,
-          type,
-        });
-        
-        this.sendToClient(client.id, 'error', {
-          message: `Unknown message type: ${type}`,
-        });
-    }
-  }
-
-  /**
-   * Handle client authentication
-   */
-  private handleAuthentication(client: WebSocketClient, data: any): void {
-    const { token, userId, projectId } = data;
-
-    // In a real implementation, validate the JWT token
-    // For now, we'll do basic validation
-    if (!token || !userId) {
-      this.sendToClient(client.id, 'auth-failed', {
-        message: 'Invalid authentication data',
-      });
-      return;
-    }
-
-    // Mock token validation
-    const isValidToken = this.validateToken(token, userId);
-    
-    if (!isValidToken) {
-      this.sendToClient(client.id, 'auth-failed', {
-        message: 'Invalid or expired token',
-      });
-      return;
-    }
-
-    client.authenticated = true;
-    client.userId = userId;
-    client.projectId = projectId;
-
-    this.sendToClient(client.id, 'authenticated', {
-      userId,
-      projectId,
-      timestamp: new Date(),
-    });
-
-    logger.info('Client authenticated', {
-      clientId: client.id,
-      userId,
-      projectId,
-    });
-
-    this.emit('client-authenticated', client);
-  }
-
-  /**
-   * Handle subscription to execution updates
-   */
-  private handleSubscription(client: WebSocketClient, data: any): void {
-    const { executionId } = data;
-
-    if (!client.authenticated) {
-      this.sendToClient(client.id, 'error', {
-        message: 'Authentication required for subscriptions',
-      });
-      return;
-    }
-
-    if (!executionId) {
-      this.sendToClient(client.id, 'error', {
-        message: 'Execution ID required for subscription',
-      });
-      return;
-    }
-
-    client.subscriptions.add(executionId);
-
-    this.sendToClient(client.id, 'subscribed', {
-      executionId,
-      timestamp: new Date(),
-    });
-
-    logger.debug('Client subscribed to execution', {
-      clientId: client.id,
-      executionId,
-    });
-  }
-
-  /**
-   * Handle unsubscription from execution updates
-   */
-  private handleUnsubscription(client: WebSocketClient, data: any): void {
-    const { executionId } = data;
-
-    if (!executionId) {
-      this.sendToClient(client.id, 'error', {
-        message: 'Execution ID required for unsubscription',
-      });
-      return;
-    }
-
-    client.subscriptions.delete(executionId);
-
-    this.sendToClient(client.id, 'unsubscribed', {
-      executionId,
-      timestamp: new Date(),
-    });
-
-    logger.debug('Client unsubscribed from execution', {
-      clientId: client.id,
-      executionId,
-    });
-  }
-
-  /**
-   * Verify client connection
-   */
-  private verifyClient(info: { origin: string; secure: boolean; req: IncomingMessage }): boolean {
-    // In a real implementation, you might want to verify origin, check rate limits, etc.
-    return true;
-  }
-
-  /**
-   * Validate authentication token (mock implementation)
-   */
-  private validateToken(token: string, userId: string): boolean {
-    // Mock validation - in real implementation, verify JWT signature and expiry
-    return token.length > 10 && userId.length > 0;
+    return count;
   }
 
   /**
@@ -412,29 +358,32 @@ export class WebSocketManager extends EventEmitter {
   private startPingInterval(): void {
     this.pingInterval = setInterval(() => {
       const now = new Date();
-      const staleClients: string[] = [];
+      const timeout = 60000; // 60 seconds
 
       for (const [clientId, client] of this.clients.entries()) {
-        const timeSinceLastPing = now.getTime() - client.lastPing.getTime();
-        
-        if (timeSinceLastPing > 60000) { // 60 seconds
-          staleClients.push(clientId);
-        } else if (client.ws.readyState === WebSocket.OPEN) {
-          client.ws.ping();
-        }
-      }
-
-      // Remove stale clients
-      for (const clientId of staleClients) {
-        const client = this.clients.get(clientId);
-        if (client) {
-          logger.info('Removing stale client', { clientId });
-          client.ws.terminate();
+        if (client.ws.readyState === WebSocket.OPEN) {
+          // Check if client is still responsive
+          if (now.getTime() - client.lastPing.getTime() > timeout) {
+            logger.warn('Client ping timeout, terminating connection', { clientId });
+            client.ws.terminate();
+            this.clients.delete(clientId);
+          } else {
+            // Send ping
+            client.ws.ping();
+          }
+        } else {
+          // Remove dead connections
           this.clients.delete(clientId);
         }
       }
-
     }, 30000); // Check every 30 seconds
+  }
+
+  /**
+   * Generate unique client ID
+   */
+  private generateClientId(): string {
+    return `client_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
   }
 
   /**
@@ -446,19 +395,25 @@ export class WebSocketManager extends EventEmitter {
     // Clear ping interval
     if (this.pingInterval) {
       clearInterval(this.pingInterval);
+      this.pingInterval = null;
     }
 
     // Close all client connections
-    for (const client of this.clients.values()) {
-      client.ws.close(1001, 'Server shutting down');
+    for (const [clientId, client] of this.clients.entries()) {
+      if (client.ws.readyState === WebSocket.OPEN) {
+        client.ws.close(1000, 'Server shutdown');
+      }
     }
+    this.clients.clear();
 
     // Close server
-    return new Promise((resolve) => {
-      this.server.close(() => {
-        logger.info('WebSocket server closed');
-        resolve();
+    if (this.server) {
+      return new Promise((resolve) => {
+        this.server!.close(() => {
+          logger.info('WebSocket server closed');
+          resolve();
+        });
       });
-    });
+    }
   }
 }
