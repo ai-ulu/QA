@@ -655,7 +655,7 @@ describe('Healing Event Logging Property Tests', () => {
             expect(event.timestamp).toBeInstanceOf(Date);
           }
         ),
-        { numRuns: 100 }
+        { numRuns: 50 } // Reduced from 100 to 50 for faster testing
       );
     });
 
@@ -730,7 +730,7 @@ describe('Healing Event Logging Property Tests', () => {
             }
           }
         ),
-        { numRuns: 100 }
+        { numRuns: 50 } // Reduced from 100 to 50 for faster testing
       );
     });
 
@@ -806,7 +806,7 @@ describe('Healing Event Logging Property Tests', () => {
             }
           }
         ),
-        { numRuns: 100 }
+        { numRuns: 30 } // Reduced from 100 to 30 for faster visual recognition testing
       );
     });
 

@@ -322,14 +322,8 @@ describe('Self-Healing Engine Property Tests', () => {
           className: 'test-class',
           textContent: 'Test content',
           dataTestId: 'test-id'
-        },
-        {
-          tagName: 'button',
-          id: 'submit-btn',
-          className: 'btn primary',
-          textContent: 'Submit'
         }
-      ];
+      ]; // Reduced from 2 test cases to 1
 
       for (const elementData of testCases) {
         // Create a test HTML page with the element

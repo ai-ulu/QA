@@ -283,13 +283,13 @@ This implementation plan breaks down the AutoQA Pilot system into incremental de
     - Test that healing attempts alternative location strategies
     - Verify test scenarios are updated when healing succeeds
 
-  - [-]* 11.4 Write property tests for healing event logging
+  - [x]* 11.4 Write property tests for healing event logging
     - **Property 8: Healing Event Logging**
     - **Validates: Requirements 4.3, 4.4, 4.5**
     - Test that all healing attempts are logged appropriately
     - Verify user notifications are sent for all healing events
 
-  - [ ]* 11.5 Write unit tests for healing edge cases
+  - [x]* 11.5 Write unit tests for healing edge cases
     - Test healing failure scenarios
     - Test performance optimization for large DOMs
     - Test memory management for image comparison

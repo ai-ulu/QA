@@ -12,12 +12,12 @@
  */
 
 import { Page } from 'playwright';
-import { HealingStrategy } from '@autoqa/database';
 import {
   HealingContext,
   HealingResult,
   HealingConfig,
   HealingAttempt,
+  HealingStrategy,
   HealingEvent,
   HealingLogger,
   HealingMetrics,
