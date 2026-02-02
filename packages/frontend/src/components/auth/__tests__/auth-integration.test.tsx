@@ -84,10 +84,16 @@ Object.defineProperty(window, 'localStorage', {
 const mockUser: User = {
   id: '12345',
   username: 'testuser',
+  login: 'testuser',
   email: 'test@example.com',
   name: 'Test User',
+  bio: null,
+  location: null,
+  website: null,
+  company: null,
   avatarUrl: 'https://github.com/images/error/testuser_happy.gif',
   githubId: 12345,
+  projectCount: 0,
   createdAt: '2020-01-01T00:00:00Z',
   updatedAt: '2024-01-01T00:00:00Z',
 };
@@ -126,7 +132,7 @@ function TestWrapper({ children }: { children: React.ReactNode }) {
     defaultOptions: {
       queries: {
         retry: false,
-        cacheTime: 0,
+        gcTime: 0,
       },
     },
   });
@@ -155,7 +161,7 @@ describe('Frontend Authentication Integration', () => {
       defaultOptions: {
         queries: {
           retry: false,
-          cacheTime: 0,
+          gcTime: 0,
         },
       },
     });
@@ -418,7 +424,7 @@ describe('Frontend Authentication Integration', () => {
       // Mock useNavigate
       const mockNavigate = vi.fn();
       vi.mock('react-router-dom', async () => {
-        const actual = await vi.importActual('react-router-dom');
+        const actual = await vi.importActual('react-router-dom') as any;
         return {
           ...actual,
           useNavigate: () => mockNavigate,

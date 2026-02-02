@@ -2,12 +2,15 @@ export interface User {
   id: string;
   githubId: number;
   username: string;
+  login: string;
   email: string | null;
   name: string | null;
   bio: string | null;
   location: string | null;
   website: string | null;
+  company: string | null;
   avatarUrl: string;
+  avatar_url?: string; // GitHub API compatibility
   projectCount: number;
   createdAt: string;
   updatedAt: string;

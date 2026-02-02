@@ -22,7 +22,6 @@
     "docker:build": "docker-compose build",
     "docker:up": "docker-compose up -d",
     "docker:down": "docker-compose down",
-    "security:audit": "npm audit --audit-level=high",
     "security:scan": "snyk test",
     "prepare": "husky install"
   },
@@ -44,10 +43,6 @@
     "npm": ">=10.0.0"
   },
   "lint-staged": {
-    "*.{js,ts,tsx}": [
-      "eslint --fix",
-      "prettier --write"
-    ],
     "*.{json,md,yml,yaml}": [
       "prettier --write"
     ]

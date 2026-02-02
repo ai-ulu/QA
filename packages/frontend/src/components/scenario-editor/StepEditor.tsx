@@ -3,7 +3,7 @@ import { TestStep } from '../../types/scenario';
 import { Button } from '../ui/Button';
 import { Input } from '../ui/Input';
 import { Select } from '../ui/Select';
-import { TrashIcon, GripVerticalIcon } from '@heroicons/react/24/outline';
+import { TrashIcon, Bars3Icon } from '@heroicons/react/24/outline';
 
 interface StepEditorProps {
   step: TestStep;
@@ -66,7 +66,7 @@ export const StepEditor: React.FC<StepEditorProps> = ({
       {/* Header */}
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center space-x-3">
-          <GripVerticalIcon className="w-5 h-5 text-gray-400 cursor-grab" />
+          <Bars3Icon className="w-5 h-5 text-gray-400 cursor-grab" />
           <span className="text-lg">{getStepIcon(step.type)}</span>
           <div className="flex-1">
             <h4 className="font-medium text-gray-900">

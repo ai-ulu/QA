@@ -130,11 +130,15 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const isLoading = !isInitialized || (isUserLoading && !!authApi.getToken());
   const isAuthenticated = !!user && !!authApi.getToken();
 
+  const login = async (token: string): Promise<void> => {
+    await loginMutation.mutateAsync(token);
+  };
+
   const value: AuthContextType = {
     user: user || null,
     isLoading,
     isAuthenticated,
-    login: loginMutation.mutateAsync,
+    login,
     loginWithGitHub,
     logout,
     refreshUser,

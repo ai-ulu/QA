@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AutoQA Test Report - {{summary.executionDate}}</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            background: #f8f9fa;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        
+        .header {
+            background: {{config.branding.colors.primary}};
+            color: white;
+            padding: 30px;
+            border-radius: 8px;
+            margin-bottom: 30px;
+            text-align: center;
+        }
+        
+        .header h1 {
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+        }
+        
+        .header .subtitle {
+            font-size: 1.2rem;
+            opacity: 0.9;
+        }
+        
+        .summary-cards {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        
+        .card {
+            background: white;
+            padding: 25px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            text-align: center;
+        }
+        
+        .card h3 {
+            font-size: 2rem;
+            margin-bottom: 10px;
+        }
+        
+        .card.success h3 { color: {{config.branding.colors.success}}; }
+        .card.error h3 { color: {{config.branding.colors.error}}; }
+        .card.info h3 { color: {{config.branding.colors.primary}}; }
+        
+        .executions {
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+        
+        .executions-header {
+            background: {{config.branding.colors.secondary}};
+            color: white;
+            padding: 20px;
+        }
+        
+        .execution {
+            border-bottom: 1px solid #eee;
+            padding: 20px;
+        }
+        
+        .execution:last-child {
+            border-bottom: none;
+        }
+        
+        .execution-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+        
+        .execution-title {
+            font-size: 1.2rem;
+            font-weight: 600;
+        }
+        
+        .status {
+            padding: 5px 15px;
+            border-radius: 20px;
+            font-size: 0.9rem;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+        
+        .status.passed {
+            background: {{config.branding.colors.success}};
+            color: white;
+        }
+        
+        .status.failed {
+            background: {{config.branding.colors.error}};
+            color: white;
+        }
+        
+        .status.skipped {
+            background: #6c757d;
+            color: white;
+        }
+        
+        .execution-details {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 15px;
+        }
+        
+        .detail-item {
+            display: flex;
+            justify-content: space-between;
+        }
+        
+        .detail-label {
+            font-weight: 600;
+            color: #666;
+        }
+        
+        .steps {
+            margin-top: 20px;
+        }
+        
+        .step {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px;
+            margin: 5px 0;
+            background: #f8f9fa;
+            border-radius: 4px;
+        }
+        
+        .step.failed {
+            background: #fff5f5;
+            border-left: 4px solid {{config.branding.colors.error}};
+        }
+        
+        .step.passed {
+            background: #f0fff4;
+            border-left: 4px solid {{config.branding.colors.success}};
+        }
+        
+        .artifacts {
+            margin-top: 15px;
+        }
+        
+        .artifact-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+            gap: 10px;
+            margin-top: 10px;
+        }
+        
+        .artifact {
+            background: #f8f9fa;
+            padding: 10px;
+            border-radius: 4px;
+            text-align: center;
+            text-decoration: none;
+            color: #333;
+            transition: background 0.2s;
+        }
+        
+        .artifact:hover {
+            background: #e9ecef;
+        }
+        
+        .error-details {
+            background: #fff5f5;
+            border: 1px solid #fed7d7;
+            border-radius: 4px;
+            padding: 15px;
+            margin-top: 15px;
+        }
+        
+        .error-title {
+            color: {{config.branding.colors.error}};
+            font-weight: 600;
+            margin-bottom: 10px;
+        }
+        
+        .error-message {
+            font-family: 'Courier New', monospace;
+            font-size: 0.9rem;
+            white-space: pre-wrap;
+        }
+        
+        .footer {
+            text-align: center;
+            margin-top: 40px;
+            padding: 20px;
+            color: #666;
+            font-size: 0.9rem;
+        }
+        
+        @media (max-width: 768px) {
+            .container {
+                padding: 10px;
+            }
+            
+            .header h1 {
+                font-size: 2rem;
+            }
+            
+            .summary-cards {
+                grid-template-columns: 1fr;
+            }
+            
+            .execution-header {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 10px;
+            }
+            
+            .execution-details {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            {{#if config.branding.logo}}
+                <img src="{{config.branding.logo}}" alt="Logo" style="max-height: 60px; margin-bottom: 20px;">
+            {{/if}}
+            <h1>{{#if config.branding.companyName}}{{config.branding.companyName}} {{/if}}Test Report</h1>
+            <div class="subtitle">Generated on {{formatDate summary.executionDate}}</div>
+        </div>
+        
+        <div class="summary-cards">
+            <div class="card info">
+                <h3>{{summary.totalTests}}</h3>
+                <p>Total Tests</p>
+            </div>
+            <div class="card success">
+                <h3>{{summary.passed}}</h3>
+                <p>Passed</p>
+            </div>
+            <div class="card error">
+                <h3>{{summary.failed}}</h3>
+                <p>Failed</p>
+            </div>
+            <div class="card info">
+                <h3>{{formatPercentage summary.successRate}}%</h3>
+                <p>Success Rate</p>
+            </div>
+            <div class="card info">
+                <h3>{{formatDuration summary.totalDuration}}</h3>
+                <p>Total Duration</p>
+            </div>
+        </div>
+        
+        <div class="executions">
+            <div class="executions-header">
+                <h2>Test Executions</h2>
+            </div>
+            
+            {{#each executions}}
+            <div class="execution">
+                <div class="execution-header">
+                    <div class="execution-title">Test: {{testId}}</div>
+                    <div class="status {{status}}">{{status}}</div>
+                </div>
+                
+                <div class="execution-details">
+                    <div class="detail-item">
+                        <span class="detail-label">Duration:</span>
+                        <span>{{formatDuration duration}}</span>
+                    </div>
+                    <div class="detail-item">
+                        <span class="detail-label">Browser:</span>
+                        <span>{{metadata.browser}}</span>
+                    </div>
+                    <div class="detail-item">
+                        <span class="detail-label">Viewport:</span>
+                        <span>{{metadata.viewport.width}}x{{metadata.viewport.height}}</span>
+                    </div>
+                    <div class="detail-item">
+                        <span class="detail-label">URL:</span>
+                        <span>{{metadata.url}}</span>
+                    </div>
+                </div>
+                
+                {{#if error}}
+                <div class="error-details">
+                    <div class="error-title">Error Details</div>
+                    <div class="error-message">{{error}}</div>
+                </div>
+                {{/if}}
+                
+                {{#if steps}}
+                <div class="steps">
+                    <h4>Test Steps</h4>
+                    {{#each steps}}
+                    <div class="step {{status}}">
+                        <span>{{name}}</span>
+                        <span>{{formatDuration duration}} - {{status}}</span>
+                    </div>
+                    {{/each}}
+                </div>
+                {{/if}}
+                
+                {{#if artifacts}}
+                <div class="artifacts">
+                    <h4>Artifacts</h4>
+                    <div class="artifact-grid">
+                        {{#each artifacts}}
+                        <a href="{{url}}" class="artifact" target="_blank">
+                            <div>{{type}}</div>
+                            <small>{{formatDate timestamp}}</small>
+                        </a>
+                        {{/each}}
+                    </div>
+                </div>
+                {{/if}}
+            </div>
+            {{/each}}
+        </div>
+        
+        <div class="footer">
+            <p>Generated by AutoQA Pilot - Autonomous Web Testing Platform</p>
+            <p>Report generated at {{formatDate summary.executionDate}}</p>
+        </div>
+    </div>
+</body>
+</html>

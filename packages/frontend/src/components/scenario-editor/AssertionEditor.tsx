@@ -3,7 +3,7 @@ import { TestAssertion } from '../../types/scenario';
 import { Button } from '../ui/Button';
 import { Input } from '../ui/Input';
 import { Select } from '../ui/Select';
-import { TrashIcon, GripVerticalIcon, CheckCircleIcon } from '@heroicons/react/24/outline';
+import { TrashIcon, Bars3Icon, CheckCircleIcon } from '@heroicons/react/24/outline';
 
 interface AssertionEditorProps {
   assertion: TestAssertion;
@@ -88,7 +88,7 @@ export const AssertionEditor: React.FC<AssertionEditorProps> = ({
       {/* Header */}
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center space-x-3">
-          <GripVerticalIcon className="w-5 h-5 text-gray-400 cursor-grab" />
+          <Bars3Icon className="w-5 h-5 text-gray-400 cursor-grab" />
           <CheckCircleIcon className="w-5 h-5 text-green-600" />
           <span className="text-lg">{getAssertionIcon(assertion.type)}</span>
           <div className="flex-1">
@@ -227,7 +227,6 @@ export const AssertionEditor: React.FC<AssertionEditorProps> = ({
                 value={assertion.attributeName || ''}
                 onChange={(e) => handleFieldChange('attributeName', e.target.value)}
                 placeholder="class, id, data-testid, etc."
-                size="sm"
               />
             </div>
           )}

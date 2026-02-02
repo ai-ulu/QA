@@ -7,6 +7,7 @@ This implementation plan breaks down the AutoQA Pilot system into incremental de
 **Repository:** https://github.com/agiulucom42-del/QA
 
 **Key Principles:**
+
 - Test-driven development with property-based testing
 - Production-ready code from day one
 - Incremental delivery with working features
@@ -24,14 +25,14 @@ This implementation plan breaks down the AutoQA Pilot system into incremental de
   - Initialize package.json with all required dependencies
   - _Requirements: All requirements (foundation)_
 
-  - [x]* 1.1 Set up comprehensive testing framework
+  - [x]\* 1.1 Set up comprehensive testing framework
     - Configure Jest for unit testing with TypeScript support
     - Set up fast-check for property-based testing (minimum 100 iterations)
     - Configure Testcontainers for database integration tests
     - Set up test coverage reporting with 80% minimum threshold
     - _Requirements: Testing foundation for all requirements_
 
-  - [x]* 1.2 Configure CI/CD pipeline with GitHub Actions
+  - [x]\* 1.2 Configure CI/CD pipeline with GitHub Actions
     - Set up automated testing pipeline with quality gates
     - Configure security scanning (npm audit, Snyk)
     - Set up Docker image building and registry push
@@ -46,19 +47,19 @@ This implementation plan breaks down the AutoQA Pilot system into incremental de
     - Configure UTC timezone consistency
     - _Requirements: 1.4, 1.5, 1.6 (project management), 9.1 (encryption)_
 
-  - [x]* 2.2 Write property tests for database operations
+  - [x]\* 2.2 Write property tests for database operations
     - **Property 1: Project CRUD Operations Consistency**
     - **Validates: Requirements 1.4, 1.6**
     - Test that creating then reading a project returns equivalent data
     - Verify all CRUD operations maintain data integrity
 
-  - [x]* 2.3 Write property tests for credential encryption
+  - [x]\* 2.3 Write property tests for credential encryption
     - **Property 2: Credential Encryption Round Trip**
     - **Validates: Requirements 1.5, 9.1**
     - Test that encrypting then decrypting produces original credentials
     - Verify all stored credentials are AES-256 encrypted
 
-  - [x]* 2.4 Write unit tests for database edge cases
+  - [x]\* 2.4 Write unit tests for database edge cases
     - Test connection pool exhaustion scenarios
     - Test transaction rollback on errors
     - Test concurrent access patterns
@@ -73,13 +74,13 @@ This implementation plan breaks down the AutoQA Pilot system into incremental de
     - Set up cache stampede prevention mechanisms
     - _Requirements: 9.4 (rate limiting), 8.1-8.5 (scheduling)_
 
-  - [x]* 3.2 Write property tests for caching consistency
+  - [x]\* 3.2 Write property tests for caching consistency
     - **Property 24: Cache Consistency and Performance**
     - **Validates: Production Checklist - Cache & Consistency**
     - Test cache-database consistency across operations
     - Verify cache invalidation works correctly
 
-  - [x]* 3.3 Write unit tests for rate limiting
+  - [x]\* 3.3 Write unit tests for rate limiting
     - Test rate limit enforcement per user/endpoint
     - Test rate limit reset behavior
     - Test distributed rate limiting across instances
@@ -95,13 +96,13 @@ This implementation plan breaks down the AutoQA Pilot system into incremental de
     - Implement session management with Redis
     - _Requirements: 1.1, 1.2, 1.3_
 
-  - [x]* 4.2 Write property tests for authentication flow
+  - [x]\* 4.2 Write property tests for authentication flow
     - Test OAuth state validation across all scenarios
     - Verify JWT token generation and validation consistency
     - Test session management and expiry behavior
     - _Requirements: 1.1, 1.2, 1.3_
 
-  - [-]* 4.3 Write unit tests for authentication edge cases
+  - [-]\* 4.3 Write unit tests for authentication edge cases
     - Test OAuth callback error scenarios
     - Test expired token handling
     - Test concurrent login attempts
@@ -123,13 +124,13 @@ This implementation plan breaks down the AutoQA Pilot system into incremental de
     - Add request/response logging with correlation IDs
     - _Requirements: 1.4, 1.5, 1.6_
 
-  - [x]* 5.3 Write property tests for API endpoints
+  - [x]\* 5.3 Write property tests for API endpoints
     - Test CRUD operation consistency across all endpoints
     - Verify input validation handles all edge cases
     - Test authorization enforcement across all operations
     - _Requirements: 1.4, 1.5, 1.6_
 
-  - [x]* 5.4 Write unit tests for API error handling
+  - [x]\* 5.4 Write unit tests for API error handling
     - Test malformed request handling
     - Test database connection failure scenarios
     - Test authorization failure responses
@@ -146,7 +147,7 @@ This implementation plan breaks down the AutoQA Pilot system into incremental de
     - Implement error boundaries and loading states
     - _Requirements: 1.1, 1.2, 1.3_
 
-  - [x]* 6.2 Write component tests with React Testing Library
+  - [x]\* 6.2 Write component tests with React Testing Library
     - Test all UI components with loading/error/empty states
     - Test accessibility compliance (WCAG 2.1)
     - Test responsive design across screen sizes
@@ -168,13 +169,13 @@ This implementation plan breaks down the AutoQA Pilot system into incremental de
     - Implement drag-and-drop for project organization
     - _Requirements: 1.4, 1.5, 1.6_
 
-  - [x]* 7.3 Write integration tests for authentication flow
+  - [x]\* 7.3 Write integration tests for authentication flow
     - Test complete OAuth flow end-to-end
     - Test session persistence and expiry
     - Test error scenarios and recovery
     - _Requirements: 1.1, 1.2, 1.3_
 
-  - [x]* 7.4 Write unit tests for project management UI
+  - [x]\* 7.4 Write unit tests for project management UI
     - Test form validation and submission
     - Test CRUD operations with proper error handling
     - Test loading states and user feedback
@@ -197,19 +198,19 @@ This implementation plan breaks down the AutoQA Pilot system into incremental de
     - Implement retry logic with exponential backoff
     - _Requirements: 2.1, 2.2, 2.5_
 
-  - [x]* 8.3 Write property tests for AI code generation
+  - [x]\* 8.3 Write property tests for AI code generation
     - **Property 3: Natural Language to Code Generation**
     - **Validates: Requirements 2.1, 2.5**
     - Test that generated code is syntactically valid Playwright code
     - Verify all generated code can be executed without compilation errors
 
-  - [x]* 8.4 Write property tests for test scenario manipulation
+  - [x]\* 8.4 Write property tests for test scenario manipulation
     - **Property 4: Test Scenario Manipulation Consistency**
     - **Validates: Requirements 2.2, 2.3, 2.4**
     - Test that editing scenarios maintains original intent
     - Verify drag-and-drop operations produce valid scenarios
 
-  - [x]* 8.5 Write unit tests for AI service edge cases
+  - [x]\* 8.5 Write unit tests for AI service edge cases
     - Test API timeout and failure scenarios
     - Test malformed input handling
     - Test rate limit exceeded scenarios
@@ -224,7 +225,7 @@ This implementation plan breaks down the AutoQA Pilot system into incremental de
     - Add assertion management and validation
     - _Requirements: 2.2, 2.3, 2.4_
 
-  - [x]* 9.2 Write component tests for scenario editor
+  - [x]\* 9.2 Write component tests for scenario editor
     - Test drag-and-drop functionality
     - Test real-time preview updates
     - Test code editing and validation
@@ -241,19 +242,19 @@ This implementation plan breaks down the AutoQA Pilot system into incremental de
     - Implement JavaScript error capture with stack traces
     - _Requirements: 3.1, 3.2, 3.3, 3.4, 3.5_
 
-  - [x]* 10.2 Write property tests for crawler functionality
+  - [x]\* 10.2 Write property tests for crawler functionality
     - **Property 5: Site Scanning Completeness**
     - **Validates: Requirements 3.1, 3.2, 3.5**
     - Test that crawler generates comprehensive site maps
     - Verify robots.txt compliance across all scenarios
 
-  - [x]* 10.3 Write property tests for error detection
+  - [x]\* 10.3 Write property tests for error detection
     - **Property 6: Error Detection and Reporting**
     - **Validates: Requirements 3.3, 3.4**
     - Test that broken links are detected and reported with URLs
     - Verify JavaScript errors are captured with stack traces
 
-  - [x]* 10.4 Write unit tests for crawler edge cases
+  - [x]\* 10.4 Write unit tests for crawler edge cases
     - Test timeout handling and recovery
     - Test memory management for large sites
     - Test duplicate URL detection
@@ -277,19 +278,19 @@ This implementation plan breaks down the AutoQA Pilot system into incremental de
     - Add DOM snapshot capture for debugging
     - _Requirements: 4.3, 4.4_
 
-  - [x]* 11.3 Write property tests for self-healing
+  - [x]\* 11.3 Write property tests for self-healing
     - **Property 7: Element Location Healing**
     - **Validates: Requirements 4.1, 4.2**
     - Test that healing attempts alternative location strategies
     - Verify test scenarios are updated when healing succeeds
 
-  - [x]* 11.4 Write property tests for healing event logging
+  - [x]\* 11.4 Write property tests for healing event logging
     - **Property 8: Healing Event Logging**
     - **Validates: Requirements 4.3, 4.4, 4.5**
     - Test that all healing attempts are logged appropriately
     - Verify user notifications are sent for all healing events
 
-  - [x]* 11.5 Write unit tests for healing edge cases
+  - [x]\* 11.5 Write unit tests for healing edge cases
     - Test healing failure scenarios
     - Test performance optimization for large DOMs
     - Test memory management for image comparison
@@ -313,19 +314,19 @@ This implementation plan breaks down the AutoQA Pilot system into incremental de
     - Set up monitoring and logging for containers
     - _Requirements: 5.2, 5.5_
 
-  - [x]* 12.3 Write property tests for container isolation
+  - [x]\* 12.3 Write property tests for container isolation
     - **Property 9: Container Isolation and Cleanup**
     - **Validates: Requirements 5.1, 5.4, 9.2, 9.3**
     - Test that containers are completely isolated
     - Verify automatic resource cleanup after execution
 
-  - [x]* 12.4 Write property tests for load distribution
+  - [x]\* 12.4 Write property tests for load distribution
     - **Property 10: Load Distribution and Scaling**
     - **Validates: Requirements 5.2, 5.5**
     - Test that tests are distributed across available containers
     - Verify automatic scaling based on queue length
 
-  - [x]* 12.5 Write unit tests for container security
+  - [x]\* 12.5 Write unit tests for container security
     - Test SSRF prevention mechanisms
     - Test resource limit enforcement
     - Test security context configuration
@@ -340,13 +341,13 @@ This implementation plan breaks down the AutoQA Pilot system into incremental de
     - Implement timeout handling and cleanup
     - _Requirements: 5.3_
 
-  - [x]* 13.2 Write property tests for execution feedback
+  - [x]\* 13.2 Write property tests for execution feedback
     - **Property 11: Real-time Execution Feedback**
     - **Validates: Requirements 5.3**
     - Test that real-time console output is provided
     - Verify execution state visibility throughout process
 
-  - [x]* 13.3 Write unit tests for execution orchestration
+  - [x]\* 13.3 Write unit tests for execution orchestration
     - Test job queue management
     - Test timeout handling and cleanup
     - Test concurrent execution limits
@@ -356,33 +357,33 @@ This implementation plan breaks down the AutoQA Pilot system into incremental de
 ### Phase 8: Reporting and Artifact Management
 
 - [ ] 14. Implement comprehensive test reporting
-  - [ ] 14.1 Create artifact capture system
+  - [x] 14.1 Create artifact capture system
     - Implement screenshot capture at each test step
     - Add DOM snapshot capture for failed tests
     - Create network log capture (HAR format)
     - Set up MinIO/S3 storage for artifacts
     - _Requirements: 6.1, 6.2, 6.5_
 
-  - [ ] 14.2 Create report generation system
+  - [x] 14.2 Create report generation system
     - Implement comprehensive report generation
     - Add execution timeline with visual evidence
     - Create report templates with branding
     - Add historical analysis capabilities
     - _Requirements: 6.3, 6.4_
 
-  - [ ]* 14.3 Write property tests for artifact capture
+  - [x]\* 14.3 Write property tests for artifact capture
     - **Property 12: Comprehensive Artifact Capture**
     - **Validates: Requirements 6.1, 6.2**
     - Test that screenshots are captured at each step
     - Verify DOM snapshots and network logs for failed tests
 
-  - [ ]* 14.4 Write property tests for report generation
+  - [x]\* 14.4 Write property tests for report generation
     - **Property 13: Report Generation and Storage**
     - **Validates: Requirements 6.3, 6.4, 6.5**
     - Test that comprehensive reports are generated for all executions
     - Verify all artifacts are stored in MinIO/S3
 
-  - [ ]* 14.5 Write unit tests for reporting edge cases
+  - [x]\* 14.5 Write unit tests for reporting edge cases
     - Test large artifact handling
     - Test storage failure scenarios
     - Test report generation with missing data
@@ -392,7 +393,7 @@ This implementation plan breaks down the AutoQA Pilot system into incremental de
 ### Phase 9: Visual Regression Testing
 
 - [ ] 15. Implement visual regression engine
-  - [ ] 15.1 Create screenshot comparison system
+  - [x] 15.1 Create screenshot comparison system
     - Implement baseline screenshot capture and storage
     - Add pixel-perfect comparison with pixelmatch
     - Create difference highlighting and percentage calculation
@@ -406,19 +407,19 @@ This implementation plan breaks down the AutoQA Pilot system into incremental de
     - Add layout shift detection algorithms
     - _Requirements: 7.4, 7.5_
 
-  - [ ]* 15.3 Write property tests for visual comparison
+  - [ ]\* 15.3 Write property tests for visual comparison
     - **Property 14: Visual Comparison Round Trip**
     - **Validates: Requirements 7.1, 7.2, 7.3**
     - Test that baseline capture and comparison works accurately
     - Verify difference calculation and percentage accuracy
 
-  - [ ]* 15.4 Write property tests for visual regression workflow
+  - [ ]\* 15.4 Write property tests for visual regression workflow
     - **Property 15: Visual Regression Workflow**
     - **Validates: Requirements 7.4, 7.5**
     - Test that visual differences mark tests as failed
     - Verify approval workflow for baseline changes
 
-  - [ ]* 15.5 Write unit tests for visual regression edge cases
+  - [ ]\* 15.5 Write unit tests for visual regression edge cases
     - Test large image handling and memory optimization
     - Test comparison performance with different image sizes
     - Test ignore regions functionality
@@ -442,19 +443,19 @@ This implementation plan breaks down the AutoQA Pilot system into incremental de
     - Add immediate alerts for critical failures
     - _Requirements: 8.3, 8.4_
 
-  - [ ]* 16.3 Write property tests for schedule management
+  - [ ]\* 16.3 Write property tests for schedule management
     - **Property 16: Schedule Management Consistency**
     - **Validates: Requirements 8.1, 8.2, 8.5**
     - Test that scheduled tests execute at correct times
     - Verify scheduling history accuracy
 
-  - [ ]* 16.4 Write property tests for notification delivery
+  - [ ]\* 16.4 Write property tests for notification delivery
     - **Property 17: Notification Delivery**
     - **Validates: Requirements 8.3, 8.4**
     - Test that notifications are sent for all completed tests
     - Verify notification content includes relevant execution details
 
-  - [ ]* 16.5 Write unit tests for scheduling edge cases
+  - [ ]\* 16.5 Write unit tests for scheduling edge cases
     - Test cron expression edge cases and validation
     - Test timezone handling and DST transitions
     - Test notification delivery failures and retries
@@ -478,19 +479,19 @@ This implementation plan breaks down the AutoQA Pilot system into incremental de
     - Add artifact publishing to GitHub releases
     - _Requirements: 10.5_
 
-  - [ ]* 17.3 Write property tests for webhook integration
+  - [ ]\* 17.3 Write property tests for webhook integration
     - **Property 20: Webhook Integration Consistency**
     - **Validates: Requirements 10.1, 10.2, 10.4**
     - Test that webhook triggers execute tests correctly
     - Verify structured JSON responses for all scenarios
 
-  - [ ]* 17.4 Write property tests for status updates
+  - [ ]\* 17.4 Write property tests for status updates
     - **Property 21: Real-time Status Updates**
     - **Validates: Requirements 10.3, 10.5**
     - Test that status updates are accurate throughout execution
     - Verify CI/CD integration provides real-time feedback
 
-  - [ ]* 17.5 Write unit tests for CI/CD integration edge cases
+  - [ ]\* 17.5 Write unit tests for CI/CD integration edge cases
     - Test webhook authentication failures
     - Test GitHub API integration errors
     - Test concurrent webhook requests
@@ -518,21 +519,21 @@ This implementation plan breaks down the AutoQA Pilot system into incremental de
     - **ENHANCED:** Add supply chain security with SBOM generation
     - _Requirements: 9.2, 9.3, 9.5_
 
-  - [ ]* 18.3 Write property tests for security enforcement
+  - [ ]\* 18.3 Write property tests for security enforcement
     - **Property 18: Rate Limiting Enforcement**
     - **Validates: Requirements 9.4**
     - Test that rate limiting is enforced consistently
     - Verify Redis-based throttling prevents abuse
     - **ENHANCED:** Test retry storm prevention mechanisms
 
-  - [ ]* 18.4 Write property tests for SSRF protection
+  - [ ]\* 18.4 Write property tests for SSRF protection
     - **Property 19: SSRF Protection**
     - **Validates: Requirements 9.5**
     - Test that test runners only access target websites
     - Verify internal network access is prevented
     - **ENHANCED:** Test network policy enforcement
 
-  - [ ]* 18.5 Write unit tests for security edge cases
+  - [ ]\* 18.5 Write unit tests for security edge cases
     - Test input validation with malicious payloads
     - Test authentication bypass attempts
     - Test authorization escalation scenarios
@@ -569,21 +570,21 @@ This implementation plan breaks down the AutoQA Pilot system into incremental de
     - **ENHANCED:** Add performance profiling and optimization
     - _Requirements: Production Checklist - Cache & Performance_
 
-  - [ ]* 19.4 Write property tests for database optimization
+  - [ ]\* 19.4 Write property tests for database optimization
     - **Property 22: Database Query Optimization**
     - **Validates: Production Checklist - Database & ORM**
     - Test that N+1 queries are prevented
     - Verify connection pool integrity without leaks
     - **ENHANCED:** Test cursor-based pagination consistency
 
-  - [ ]* 19.5 Write property tests for concurrency safety
+  - [ ]\* 19.5 Write property tests for concurrency safety
     - **Property 23: Concurrency and Race Condition Prevention**
     - **Validates: Production Checklist - Concurrency & Parallelism**
     - Test that concurrent operations prevent race conditions
     - Verify idempotency keys work correctly
     - **ENHANCED:** Test thundering herd prevention
 
-  - [ ]* 19.6 Write unit tests for performance edge cases
+  - [ ]\* 19.6 Write unit tests for performance edge cases
     - Test connection pool exhaustion scenarios
     - Test high concurrency load patterns
     - Test memory usage under stress
@@ -621,14 +622,14 @@ This implementation plan breaks down the AutoQA Pilot system into incremental de
     - **ENHANCED:** Configure ConfigMap/Secret hot-reload
     - _Requirements: Infrastructure & DevOps_
 
-  - [ ]* 20.4 Write property tests for error handling
+  - [ ]\* 20.4 Write property tests for error handling
     - **Property 25: Error Handling and Recovery**
     - **Validates: Production Checklist - Distributed System**
     - Test that retry logic works with proper backoff
     - Verify circuit breaker patterns and graceful degradation
     - **ENHANCED:** Test chaos engineering scenarios
 
-  - [ ]* 20.5 Write unit tests for resilience edge cases
+  - [ ]\* 20.5 Write unit tests for resilience edge cases
     - Test circuit breaker activation and recovery
     - Test retry exhaustion scenarios
     - Test graceful degradation behavior
@@ -654,13 +655,13 @@ This implementation plan breaks down the AutoQA Pilot system into incremental de
     - **ENHANCED:** Add cross-region backup replication
     - _Requirements: Compliance & Data Governance_
 
-  - [ ]* 21.3 Write property tests for data governance
+  - [ ]\* 21.3 Write property tests for data governance
     - Test PII masking consistency across all data
     - Verify data retention policies work automatically
     - Test "right to be forgotten" data deletion
     - _Requirements: Compliance standards_
 
-  - [ ]* 21.4 Write unit tests for backup and recovery
+  - [ ]\* 21.4 Write unit tests for backup and recovery
     - Test backup encryption and integrity
     - Test restore procedures and data consistency
     - Test RTO/RPO compliance under various scenarios
@@ -677,7 +678,7 @@ This implementation plan breaks down the AutoQA Pilot system into incremental de
     - **ENHANCED:** Add auto-shutdown for dev/test environments
     - _Requirements: Cost & Optimization_
 
-  - [ ]* 22.2 Write tests for resource optimization
+  - [ ]\* 22.2 Write tests for resource optimization
     - Test resource cleanup automation
     - Test cost tagging consistency
     - Test auto-shutdown mechanisms
@@ -695,7 +696,7 @@ This implementation plan breaks down the AutoQA Pilot system into incremental de
     - **ENHANCED:** Cache third-party API rate limits
     - _Requirements: API & Integration Advanced_
 
-  - [ ]* 23.2 Write property tests for API lifecycle
+  - [ ]\* 23.2 Write property tests for API lifecycle
     - Test API versioning and deprecation workflows
     - Verify idempotency key TTL behavior
     - Test webhook retry mechanisms
@@ -706,6 +707,7 @@ This implementation plan breaks down the AutoQA Pilot system into incremental de
 ### 🆕 Advanced Enterprise Checklist
 
 **12️⃣ Infrastructure & DevOps**
+
 - Container image'ları tarandı mı? (Trivy/Snyk)
 - Pod security context (non-root, read-only FS) ayarlı mı?
 - Resource limit (CPU/memory) tanımlı mı?
@@ -716,6 +718,7 @@ This implementation plan breaks down the AutoQA Pilot system into incremental de
 - Infrastructure as Code (IaC) drift kontrolü var mı?
 
 **13️⃣ Veri Yönetimi & Compliance**
+
 - PII (Kişisel Veri) masking/anonymization var mı?
 - GDPR/KVKK "right to be forgotten" implemente edildi mi?
 - Veri saklama süresi (retention policy) otomatik mi?
@@ -724,6 +727,7 @@ This implementation plan breaks down the AutoQA Pilot system into incremental de
 - RTO/RPO hedefleri tanımlı mı?
 
 **14️⃣ API & Entegrasyon İleri Seviye**
+
 - API deprecation takvimi ve sunset policy var mı?
 - OpenAPI/Swagger dokümantasyonu güncel mi?
 - Idempotency key TTL'si yeterli mi?
@@ -732,6 +736,7 @@ This implementation plan breaks down the AutoQA Pilot system into incremental de
 - Third-party API rate limit'leri cache'leniyor mu?
 
 **15️⃣ Maliyet & Optimizasyon**
+
 - Cloud resource tagging (cost center) yapılmış mı?
 - Unused resource (EIP, disk, snapshot) temizliği var mı?
 - Data transfer cost (cross-AZ/region) optimize edildi mi?
@@ -739,6 +744,7 @@ This implementation plan breaks down the AutoQA Pilot system into incremental de
 - Auto-shutdown (dev/test ortamları) var mı?
 
 **16️⃣ Güvenlik Derinlemesine**
+
 - Dependency confusion attack önlemi var mı? (private registry)
 - SAST/DAST scan pipeline'da var mı?
 - Secrets git history'den temizlendi mi? (git-leaks)
@@ -780,18 +786,21 @@ This implementation plan breaks down the AutoQA Pilot system into incremental de
 ## Testing Configuration
 
 **Property-Based Testing:**
+
 - Library: fast-check for JavaScript/TypeScript
 - Minimum iterations: 100 per property test
 - Tag format: **Feature: autoqa-pilot, Property {number}: {property_text}**
 - Each property test references its design document property
 
 **Unit Testing:**
+
 - Framework: Jest with TypeScript support
 - Coverage requirement: 80% minimum
 - Integration testing with Testcontainers
 - End-to-end testing with Playwright
 
 **Quality Gates:**
+
 - All tests must pass before deployment
 - Security scanning must show zero high-severity vulnerabilities
 - Performance benchmarks must meet SLA requirements
