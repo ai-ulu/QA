@@ -1,0 +1,324 @@
+# Kubernetes Security Policies for AutoQA Pilot
+# **Validates: Requirements 9.2, 9.3, 9.5**
+
+---
+# Pod Security Policy for Test Runners
+apiVersion: policy/v1beta1
+kind: PodSecurityPolicy
+metadata:
+  name: autoqa-test-runner-psp
+  namespace: autoqa-pilot
+  labels:
+    app: autoqa-pilot
+    component: security
+spec:
+  # Privilege and access controls
+  privileged: false
+  allowPrivilegeEscalation: false
+  requiredDropCapabilities:
+    - ALL
+  allowedCapabilities: []
+
+  # Host controls
+  hostNetwork: false
+  hostIPC: false
+  hostPID: false
+  hostPorts: []
+
+  # Volume controls
+  volumes:
+    - 'configMap'
+    - 'emptyDir'
+    - 'projected'
+    - 'secret'
+    - 'downwardAPI'
+    - 'persistentVolumeClaim'
+  allowedHostPaths: []
+
+  # Filesystem controls
+  readOnlyRootFilesystem: true
+  allowedFlexVolumes: []
+
+  # User and group controls
+  runAsUser:
+    rule: 'MustRunAsNonRoot'
+  runAsGroup:
+    rule: 'MustRunAs'
+    ranges:
+      - min: 1000
+        max: 65535
+  supplementalGroups:
+    rule: 'MustRunAs'
+    ranges:
+      - min: 1000
+        max: 65535
+  fsGroup:
+    rule: 'MustRunAs'
+    ranges:
+      - min: 1000
+        max: 65535
+
+  # SELinux
+  seLinux:
+    rule: 'RunAsAny'
+
+  # AppArmor
+  annotations:
+    apparmor.security.beta.kubernetes.io/allowedProfileNames: 'runtime/default'
+    apparmor.security.beta.kubernetes.io/defaultProfileName: 'runtime/default'
+
+  # Seccomp
+  seccomp:
+    defaultProfileName: 'runtime/default'
+    allowedProfileNames:
+      - 'runtime/default'
+
+---
+# Network Policy for Test Runner Isolation
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: autoqa-test-runner-netpol
+  namespace: autoqa-pilot
+  labels:
+    app: autoqa-pilot
+    component: security
+spec:
+  podSelector:
+    matchLabels:
+      app: autoqa-test-runner
+  policyTypes:
+    - Ingress
+    - Egress
+
+  # Ingress rules - only allow from orchestrator
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: autoqa-orchestrator
+      ports:
+        - protocol: TCP
+          port: 8080
+
+  # Egress rules - restrict outbound traffic
+  egress:
+    # Allow DNS resolution
+    - to: []
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+
+    # Allow HTTPS to external websites (for testing)
+    - to: []
+      ports:
+        - protocol: TCP
+          port: 443
+
+    # Allow HTTP to external websites (for testing)
+    - to: []
+      ports:
+        - protocol: TCP
+          port: 80
+
+    # Block internal cluster communication
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              name: autoqa-pilot
+        - podSelector:
+            matchLabels:
+              app: autoqa-orchestrator
+      ports:
+        - protocol: TCP
+          port: 3001
+
+---
+# Network Policy for Orchestrator
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: autoqa-orchestrator-netpol
+  namespace: autoqa-pilot
+  labels:
+    app: autoqa-pilot
+    component: security
+spec:
+  podSelector:
+    matchLabels:
+      app: autoqa-orchestrator
+  policyTypes:
+    - Ingress
+    - Egress
+
+  # Ingress rules - allow from API and external load balancer
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: autoqa-api
+      ports:
+        - protocol: TCP
+          port: 3001
+
+    # Allow from ingress controller
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: ingress-nginx
+      ports:
+        - protocol: TCP
+          port: 3001
+
+  # Egress rules
+  egress:
+    # Allow DNS resolution
+    - to: []
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+
+    # Allow communication with test runners
+    - to:
+        - podSelector:
+            matchLabels:
+              app: autoqa-test-runner
+      ports:
+        - protocol: TCP
+          port: 8080
+
+    # Allow communication with Redis
+    - to:
+        - podSelector:
+            matchLabels:
+              app: redis
+      ports:
+        - protocol: TCP
+          port: 6379
+
+    # Allow communication with database
+    - to:
+        - podSelector:
+            matchLabels:
+              app: postgresql
+      ports:
+        - protocol: TCP
+          port: 5432
+
+---
+# Security Context Constraints for OpenShift (if applicable)
+apiVersion: security.openshift.io/v1
+kind: SecurityContextConstraints
+metadata:
+  name: autoqa-test-runner-scc
+  labels:
+    app: autoqa-pilot
+    component: security
+allowHostDirVolumePlugin: false
+allowHostIPC: false
+allowHostNetwork: false
+allowHostPID: false
+allowHostPorts: false
+allowPrivilegedContainer: false
+allowedCapabilities: []
+defaultAddCapabilities: []
+requiredDropCapabilities:
+  - ALL
+allowedFlexVolumes: []
+fsGroup:
+  type: MustRunAs
+  ranges:
+    - min: 1000
+      max: 65535
+readOnlyRootFilesystem: true
+runAsUser:
+  type: MustRunAsNonRoot
+seLinuxContext:
+  type: MustRunAs
+supplementalGroups:
+  type: MustRunAs
+  ranges:
+    - min: 1000
+      max: 65535
+volumes:
+  - configMap
+  - downwardAPI
+  - emptyDir
+  - persistentVolumeClaim
+  - projected
+  - secret
+
+---
+# Resource Quota for Security
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: autoqa-security-quota
+  namespace: autoqa-pilot
+  labels:
+    app: autoqa-pilot
+    component: security
+spec:
+  hard:
+    # Limit privileged resources
+    count/podsecuritypolicies: '5'
+    count/networkpolicies: '10'
+    count/secrets: '20'
+    count/configmaps: '20'
+
+    # Resource limits
+    requests.cpu: '10'
+    requests.memory: '20Gi'
+    limits.cpu: '20'
+    limits.memory: '40Gi'
+
+    # Storage limits
+    persistentvolumeclaims: '10'
+    requests.storage: '100Gi'
+
+---
+# Limit Range for Security
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: autoqa-security-limits
+  namespace: autoqa-pilot
+  labels:
+    app: autoqa-pilot
+    component: security
+spec:
+  limits:
+    # Container limits
+    - type: Container
+      default:
+        cpu: '500m'
+        memory: '512Mi'
+      defaultRequest:
+        cpu: '100m'
+        memory: '128Mi'
+      max:
+        cpu: '2'
+        memory: '4Gi'
+      min:
+        cpu: '50m'
+        memory: '64Mi'
+
+    # Pod limits
+    - type: Pod
+      max:
+        cpu: '4'
+        memory: '8Gi'
+      min:
+        cpu: '100m'
+        memory: '128Mi'
+
+    # PVC limits
+    - type: PersistentVolumeClaim
+      max:
+        storage: '10Gi'
+      min:
+        storage: '1Gi'

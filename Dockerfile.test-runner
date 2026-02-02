@@ -1,9 +1,12 @@
-# Multi-stage build for test runner container
-# Stage 1: Build stage
-FROM node:18-alpine AS builder
+# AutoQA Pilot Test Runner - Production Security Hardened
+# **Validates: Requirements 9.2, 9.3, 9.5**
+# Multi-stage build for minimal attack surface
 
-# Install system dependencies
-RUN apk add --no-cache \
+# Stage 1: Build stage
+FROM node:20-alpine AS builder
+
+# Install system dependencies with security updates
+RUN apk add --no-cache --update \
     chromium \
     nss \
     freetype \
@@ -13,59 +16,83 @@ RUN apk add --no-cache \
     ttf-freefont \
     python3 \
     make \
-    g++
+    g++ \
+    && apk upgrade \
+    && rm -rf /var/cache/apk/*
 
 # Set Playwright to use system Chromium
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
-    PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
+    PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser \
+    NODE_ENV=production
 
-# Create app directory
+# Create non-root user for build
+RUN addgroup -g 1001 -S autoqa && \
+    adduser -S autoqa -u 1001 -G autoqa
+
+# Create app directory with proper permissions
 WORKDIR /app
+RUN chown autoqa:autoqa /app
+
+# Switch to non-root user for build
+USER autoqa
 
 # Copy package files
-COPY package*.json ./
-COPY pnpm-lock.yaml ./
-COPY pnpm-workspace.yaml ./
+COPY --chown=autoqa:autoqa package*.json ./
+COPY --chown=autoqa:autoqa pnpm-lock.yaml ./
+COPY --chown=autoqa:autoqa pnpm-workspace.yaml ./
 
 # Install pnpm
+USER root
 RUN npm install -g pnpm
+USER autoqa
 
 # Copy workspace packages
-COPY packages/ ./packages/
+COPY --chown=autoqa:autoqa packages/ ./packages/
 
-# Install dependencies
-RUN pnpm install --frozen-lockfile
+# Install dependencies (production only)
+RUN pnpm install --frozen-lockfile --prod
 
 # Build packages
 RUN pnpm run build
 
-# Stage 2: Runtime stage (distroless)
-FROM gcr.io/distroless/nodejs18-debian11:nonroot
+# Stage 2: Runtime stage (distroless for minimal attack surface)
+FROM gcr.io/distroless/nodejs20-debian12:nonroot
 
-# Copy built application from builder stage
-COPY --from=builder /app /app
-COPY --from=builder /usr/bin/chromium-browser /usr/bin/chromium-browser
-COPY --from=builder /usr/lib/chromium/ /usr/lib/chromium/
-COPY --from=builder /etc/fonts/ /etc/fonts/
+# Security labels for container scanning
+LABEL security.scan="enabled" \
+      security.non-root="true" \
+      security.readonly-rootfs="true" \
+      security.no-new-privileges="true" \
+      maintainer="autoqa-team@example.com" \
+      version="1.0.0"
+
+# Copy only necessary files from builder stage
+COPY --from=builder --chown=nonroot:nonroot /app/packages/test-orchestrator/dist /app
+COPY --from=builder --chown=nonroot:nonroot /app/node_modules /app/node_modules
+COPY --from=builder --chown=nonroot:nonroot /usr/bin/chromium-browser /usr/bin/chromium-browser
+COPY --from=builder --chown=nonroot:nonroot /usr/lib/chromium/ /usr/lib/chromium/
+COPY --from=builder --chown=nonroot:nonroot /etc/fonts/ /etc/fonts/
 
 # Set working directory
 WORKDIR /app
 
-# Set environment variables
+# Set secure environment variables
 ENV NODE_ENV=production \
     PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
     PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser \
-    PLAYWRIGHT_BROWSERS_PATH=/usr/lib/chromium
+    PLAYWRIGHT_BROWSERS_PATH=/usr/lib/chromium \
+    NODE_OPTIONS="--max-old-space-size=1024" \
+    UV_THREADPOOL_SIZE=4
 
-# Security: Run as non-root user (distroless already provides this)
-USER nonroot
+# Security: Already running as non-root user (distroless nonroot)
+# Additional security will be enforced by Kubernetes SecurityContext
 
-# Resource limits will be set by Kubernetes
-# CPU: 1 core, Memory: 2GB (configured in k8s deployment)
-
-# Health check
+# Health check with timeout
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD node -e "console.log('Container healthy')" || exit 1
+    CMD node -e "require('http').get('http://localhost:8080/health', (res) => { process.exit(res.statusCode === 200 ? 0 : 1) })" || exit 1
+
+# Expose port (will be restricted by NetworkPolicy)
+EXPOSE 8080
 
 # Default command
-CMD ["node", "packages/api/dist/index.js"]
+CMD ["node", "index.js"]

@@ -12,6 +12,16 @@ import dotenv from 'dotenv';
 import { logger, morganStream } from './utils/logger';
 import { correlationId } from './middleware/correlation-id';
 import { rateLimiter } from './middleware/rate-limiter';
+import { 
+  securityHeaders, 
+  corsConfig, 
+  sanitizeInput, 
+  preventSQLInjection, 
+  preventXSS, 
+  requestSizeLimiter,
+  securityEventLogger,
+  initializeSecurity 
+} from './middleware/security';
 
 // Import routes
 import usersRouter from './routes/users';
@@ -21,6 +31,9 @@ import webhooksRouter from './routes/webhooks';
 // Load environment variables
 dotenv.config();
 
+// Initialize security
+initializeSecurity();
+
 const app = express();
 const PORT = process.env.PORT || 3001;
 
@@ -28,48 +41,10 @@ const PORT = process.env.PORT || 3001;
 app.set('trust proxy', 1);
 
 // Security middleware
-app.use(helmet({
-  contentSecurityPolicy: {
-    directives: {
-      defaultSrc: ["'self'"],
-      styleSrc: ["'self'", "'unsafe-inline'"],
-      scriptSrc: ["'self'"],
-      imgSrc: ["'self'", "data:", "https:"],
-      connectSrc: ["'self'"],
-      fontSrc: ["'self'"],
-      objectSrc: ["'none'"],
-      mediaSrc: ["'self'"],
-      frameSrc: ["'none'"],
-    },
-  },
-  crossOriginEmbedderPolicy: false,
-}));
+app.use(securityHeaders);
 
 // CORS configuration
-app.use(cors({
-  origin: process.env.CORS_ORIGINS?.split(',') || [
-    'http://localhost:3000',
-    'http://localhost:5173',
-  ],
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: [
-    'Origin',
-    'X-Requested-With',
-    'Content-Type',
-    'Accept',
-    'Authorization',
-    'X-Correlation-ID',
-    'X-Request-ID',
-  ],
-  exposedHeaders: [
-    'X-Correlation-ID',
-    'X-RateLimit-Limit',
-    'X-RateLimit-Remaining',
-    'X-RateLimit-Reset',
-    'Retry-After',
-  ],
-}));
+app.use(cors(corsConfig));
 
 // Compression middleware
 app.use(compression());
@@ -89,6 +64,13 @@ app.use(cookieParser());
 
 // Request correlation ID
 app.use(correlationId);
+
+// Security middleware
+app.use(requestSizeLimiter);
+app.use(sanitizeInput);
+app.use(preventSQLInjection);
+app.use(preventXSS);
+app.use(securityEventLogger);
 
 // HTTP request logging
 app.use(morgan(

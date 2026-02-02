@@ -1,0 +1,330 @@
+name: 'Security Scanning Pipeline'
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Run security scans daily at 2 AM UTC
+    - cron: '0 2 * * *'
+
+jobs:
+  dependency-scan:
+    name: 'Dependency Vulnerability Scan'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run npm audit
+        run: |
+          npm audit --audit-level=moderate --production
+          npm audit --audit-level=high --json > audit-results.json || true
+
+      - name: Upload audit results
+        uses: actions/upload-artifact@v4
+        with:
+          name: npm-audit-results
+          path: audit-results.json
+
+      - name: Run Snyk security scan
+        uses: snyk/actions/node@master
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        with:
+          args: --severity-threshold=high --file=package.json
+
+      - name: Upload Snyk results
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: snyk.sarif
+
+  sast-scan:
+    name: 'Static Application Security Testing'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: javascript, typescript
+          queries: security-and-quality
+
+      - name: Autobuild
+        uses: github/codeql-action/autobuild@v3
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: '/language:javascript'
+
+      - name: Run Semgrep SAST
+        uses: returntocorp/semgrep-action@v1
+        with:
+          config: >-
+            p/security-audit
+            p/secrets
+            p/owasp-top-ten
+            p/javascript
+            p/typescript
+            p/react
+            p/express
+          generateSarif: '1'
+
+      - name: Upload Semgrep results
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: semgrep.sarif
+
+  secrets-scan:
+    name: 'Secrets Detection'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Full history for git-leaks
+
+      - name: Run git-leaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
+
+      - name: Run TruffleHog
+        uses: trufflesecurity/trufflehog@main
+        with:
+          path: ./
+          base: main
+          head: HEAD
+          extra_args: --debug --only-verified
+
+  container-scan:
+    name: 'Container Security Scan'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: |
+          docker build -f Dockerfile.test-runner -t autoqa-test-runner:latest .
+
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: 'autoqa-test-runner:latest'
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+          severity: 'CRITICAL,HIGH,MEDIUM'
+
+      - name: Upload Trivy scan results
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: 'trivy-results.sarif'
+
+      - name: Run Snyk container scan
+        uses: snyk/actions/docker@master
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        with:
+          image: autoqa-test-runner:latest
+          args: --severity-threshold=high
+
+      - name: Run Docker Bench Security
+        run: |
+          docker run --rm --net host --pid host --userns host --cap-add audit_control \
+            -e DOCKER_CONTENT_TRUST=$DOCKER_CONTENT_TRUST \
+            -v /etc:/etc:ro \
+            -v /usr/bin/containerd:/usr/bin/containerd:ro \
+            -v /usr/bin/runc:/usr/bin/runc:ro \
+            -v /usr/lib/systemd:/usr/lib/systemd:ro \
+            -v /var/lib:/var/lib:ro \
+            -v /var/run/docker.sock:/var/run/docker.sock:ro \
+            --label docker_bench_security \
+            docker/docker-bench-security
+
+  infrastructure-scan:
+    name: 'Infrastructure Security Scan'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run Checkov IaC scan
+        uses: bridgecrewio/checkov-action@master
+        with:
+          directory: .
+          framework: kubernetes,dockerfile,github_actions
+          output_format: sarif
+          output_file_path: checkov-results.sarif
+
+      - name: Upload Checkov results
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: checkov-results.sarif
+
+      - name: Run kube-score
+        run: |
+          wget https://github.com/zegl/kube-score/releases/latest/download/kube-score_linux_amd64.tar.gz
+          tar -xzf kube-score_linux_amd64.tar.gz
+          ./kube-score score k8s/*.yaml --output-format json > kube-score-results.json || true
+
+      - name: Upload kube-score results
+        uses: actions/upload-artifact@v4
+        with:
+          name: kube-score-results
+          path: kube-score-results.json
+
+  license-scan:
+    name: 'License Compliance Scan'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run license checker
+        run: |
+          npx license-checker --json --out license-report.json
+          npx license-checker --summary
+
+      - name: Check for prohibited licenses
+        run: |
+          # Check for GPL, AGPL, and other copyleft licenses
+          if npx license-checker --excludePrivatePackages --onlyAllow 'MIT;Apache-2.0;BSD-2-Clause;BSD-3-Clause;ISC;Unlicense' --summary; then
+            echo "✅ All licenses are approved"
+          else
+            echo "❌ Prohibited licenses found"
+            exit 1
+          fi
+
+      - name: Upload license report
+        uses: actions/upload-artifact@v4
+        with:
+          name: license-report
+          path: license-report.json
+
+  security-summary:
+    name: 'Security Scan Summary'
+    runs-on: ubuntu-latest
+    needs:
+      [
+        dependency-scan,
+        sast-scan,
+        secrets-scan,
+        container-scan,
+        infrastructure-scan,
+        license-scan,
+      ]
+    if: always()
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+
+      - name: Generate security summary
+        run: |
+          echo "# Security Scan Summary" > security-summary.md
+          echo "" >> security-summary.md
+          echo "## Scan Results" >> security-summary.md
+          echo "" >> security-summary.md
+
+          # Check job results
+          if [ "${{ needs.dependency-scan.result }}" = "success" ]; then
+            echo "✅ Dependency Scan: PASSED" >> security-summary.md
+          else
+            echo "❌ Dependency Scan: FAILED" >> security-summary.md
+          fi
+
+          if [ "${{ needs.sast-scan.result }}" = "success" ]; then
+            echo "✅ SAST Scan: PASSED" >> security-summary.md
+          else
+            echo "❌ SAST Scan: FAILED" >> security-summary.md
+          fi
+
+          if [ "${{ needs.secrets-scan.result }}" = "success" ]; then
+            echo "✅ Secrets Scan: PASSED" >> security-summary.md
+          else
+            echo "❌ Secrets Scan: FAILED" >> security-summary.md
+          fi
+
+          if [ "${{ needs.container-scan.result }}" = "success" ]; then
+            echo "✅ Container Scan: PASSED" >> security-summary.md
+          else
+            echo "❌ Container Scan: FAILED" >> security-summary.md
+          fi
+
+          if [ "${{ needs.infrastructure-scan.result }}" = "success" ]; then
+            echo "✅ Infrastructure Scan: PASSED" >> security-summary.md
+          else
+            echo "❌ Infrastructure Scan: FAILED" >> security-summary.md
+          fi
+
+          if [ "${{ needs.license-scan.result }}" = "success" ]; then
+            echo "✅ License Scan: PASSED" >> security-summary.md
+          else
+            echo "❌ License Scan: FAILED" >> security-summary.md
+          fi
+
+          echo "" >> security-summary.md
+          echo "## Recommendations" >> security-summary.md
+          echo "" >> security-summary.md
+          echo "- Review all SARIF files uploaded to GitHub Security tab" >> security-summary.md
+          echo "- Address any HIGH or CRITICAL vulnerabilities immediately" >> security-summary.md
+          echo "- Update dependencies with known vulnerabilities" >> security-summary.md
+          echo "- Rotate any exposed secrets found in git history" >> security-summary.md
+          echo "- Review container security best practices" >> security-summary.md
+
+          cat security-summary.md
+
+      - name: Upload security summary
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-summary
+          path: security-summary.md
+
+      - name: Comment PR with security summary
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const summary = fs.readFileSync('security-summary.md', 'utf8');
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: summary
+            });
