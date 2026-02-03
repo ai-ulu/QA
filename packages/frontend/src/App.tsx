@@ -1,6 +1,8 @@
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { useAuth } from './contexts/AuthContext';
+import { useOffline } from './contexts/OfflineContext';
 import { LoadingSpinner } from './components/ui/LoadingSpinner';
+import { OfflineIndicator } from './components/ui/OfflineIndicator';
 
 // Pages
 import { LandingPage } from './pages/LandingPage';
@@ -18,6 +20,7 @@ import { PublicLayout } from './components/layout/PublicLayout';
 
 function App() {
   const { user, isLoading } = useAuth();
+  const { queuedOperations, processQueue } = useOffline();
 
   // Show loading spinner while checking authentication
   if (isLoading) {
@@ -29,25 +32,33 @@ function App() {
   }
 
   return (
-    <Routes>
-      {/* Public routes */}
-      <Route path="/" element={<PublicLayout />}>
-        <Route index element={user ? <Navigate to="/dashboard" replace /> : <LandingPage />} />
-        <Route path="login" element={user ? <Navigate to="/dashboard" replace /> : <LoginPage />} />
-        <Route path="auth/callback" element={<AuthCallbackPage />} />
-      </Route>
+    <>
+      <Routes>
+        {/* Public routes */}
+        <Route path="/" element={<PublicLayout />}>
+          <Route index element={user ? <Navigate to="/dashboard" replace /> : <LandingPage />} />
+          <Route path="login" element={user ? <Navigate to="/dashboard" replace /> : <LoginPage />} />
+          <Route path="auth/callback" element={<AuthCallbackPage />} />
+        </Route>
 
-      {/* Protected routes */}
-      <Route path="/" element={user ? <AppLayout /> : <Navigate to="/login" replace />}>
-        <Route path="dashboard" element={<DashboardPage />} />
-        <Route path="projects" element={<ProjectsPage />} />
-        <Route path="projects/:id" element={<ProjectDetailPage />} />
-        <Route path="profile" element={<ProfilePage />} />
-      </Route>
+        {/* Protected routes */}
+        <Route path="/" element={user ? <AppLayout /> : <Navigate to="/login" replace />}>
+          <Route path="dashboard" element={<DashboardPage />} />
+          <Route path="projects" element={<ProjectsPage />} />
+          <Route path="projects/:id" element={<ProjectDetailPage />} />
+          <Route path="profile" element={<ProfilePage />} />
+        </Route>
 
-      {/* 404 page */}
-      <Route path="*" element={<NotFoundPage />} />
-    </Routes>
+        {/* 404 page */}
+        <Route path="*" element={<NotFoundPage />} />
+      </Routes>
+      
+      {/* Offline indicator */}
+      <OfflineIndicator 
+        onRetry={processQueue}
+        queuedOperationsCount={queuedOperations.length}
+      />
+    </>
   );
 }
 
