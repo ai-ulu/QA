@@ -28,6 +28,10 @@ export class TestScheduler {
   async createSchedule(schedule: Omit<ScheduleConfig, 'id' | 'createdAt' | 'updatedAt'>): Promise<string> {
     const validation = CronValidator.validate(schedule.cronExpression, schedule.timezone);
     if (!validation.isValid) {
+      logger.warn('Cron validation failed', {
+        cronExpression: schedule.cronExpression,
+        error: validation.error,
+      });
       throw new Error(`Invalid cron expression: ${validation.error}`);
     }
 

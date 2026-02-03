@@ -45,6 +45,14 @@ export class CronValidator {
     } = {}
   ): CronValidationResult {
     try {
+      // Check for empty or whitespace-only expressions
+      if (!cronExpression || cronExpression.trim().length === 0) {
+        return {
+          isValid: false,
+          error: 'Cron expression cannot be empty',
+        };
+      }
+
       // Normalize expression
       const normalizedExpression = this.normalizeCronExpression(cronExpression);
       

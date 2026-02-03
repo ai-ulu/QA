@@ -155,6 +155,7 @@ export class NotificationService {
     const duration = execution.duration ? `${Math.round(execution.duration / 1000)}s` : 'N/A';
     
     return `${status} Scheduled test ${execution.status}\n` +
+           `Execution ID: ${execution.id}\n` +
            `Schedule ID: ${execution.scheduleId}\n` +
            `Duration: ${duration}\n` +
            `Time: ${execution.startTime.toISOString()}`;

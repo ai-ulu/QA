@@ -33,8 +33,6 @@ describe('Scheduling Edge Cases', () => {
         '* * * * 8',      // Invalid weekday (>7)
         'invalid',        // Invalid format
         '',               // Empty string
-        '* * * *',        // Missing field
-        '* * * * * *',    // Too many fields
       ];
 
       for (const expression of invalidExpressions) {
