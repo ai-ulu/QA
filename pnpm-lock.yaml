@@ -649,6 +649,9 @@ importers:
       '@types/ws':
         specifier: ^8.5.10
         version: 8.18.1
+      fast-check:
+        specifier: ^4.5.3
+        version: 4.5.3
       tsx:
         specifier: ^4.6.0
         version: 4.21.0
@@ -7780,7 +7783,7 @@ snapshots:
       sirv: 3.0.2
       tinyglobby: 0.2.15
       tinyrainbow: 3.0.3
-      vitest: 0.34.6(@vitest/ui@4.0.18)(jsdom@23.2.0(canvas@2.11.2))(playwright@1.58.1)
+      vitest: 0.34.6(@vitest/ui@4.0.18)(jsdom@27.4.0(@noble/hashes@1.8.0))(playwright@1.58.1)
 
   '@vitest/utils@0.34.6':
     dependencies:

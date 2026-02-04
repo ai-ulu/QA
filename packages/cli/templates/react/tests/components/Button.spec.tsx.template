@@ -1,0 +1,40 @@
+import { test, expect } from '@playwright/experimental-ct-react'
+import Button from '../../src/components/Button'
+
+test.describe('Button Component', () => {
+  test('renders with text', async ({ mount }) => {
+    const component = await mount(<Button>Click me</Button>)
+    await expect(component).toContainText('Click me')
+  })
+
+  test('handles click events', async ({ mount }) => {
+    let clicked = false
+    const component = await mount(
+      <Button onClick={() => { clicked = true }}>
+        Click me
+      </Button>
+    )
+    
+    await component.click()
+    expect(clicked).toBe(true)
+  })
+
+  test('supports different variants', async ({ mount }) => {
+    const primary = await mount(<Button variant="primary">Primary</Button>)
+    await expect(primary).toHaveClass(/primary/)
+
+    const secondary = await mount(<Button variant="secondary">Secondary</Button>)
+    await expect(secondary).toHaveClass(/secondary/)
+  })
+
+  test('can be disabled', async ({ mount }) => {
+    const component = await mount(<Button disabled>Disabled</Button>)
+    await expect(component).toBeDisabled()
+  })
+
+  test('supports loading state', async ({ mount }) => {
+    const component = await mount(<Button loading>Loading</Button>)
+    await expect(component).toContainText('Loading')
+    await expect(component.locator('.spinner')).toBeVisible()
+  })
+})

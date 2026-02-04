@@ -1,0 +1,80 @@
+import { test, expect } from '@playwright/test'
+import { faker } from '@faker-js/faker'
+
+test.describe('User Registration', () => {
+  test('user can register with valid information', async ({ page }) => {
+    const userData = {
+      firstName: faker.person.firstName(),
+      lastName: faker.person.lastName(),
+      email: faker.internet.email(),
+      password: 'SecurePass123!'
+    }
+
+    await page.goto('{{targetUrl}}/register')
+    
+    // Fill registration form
+    await page.fill('[data-testid="first-name"], [name="firstName"], #firstName', userData.firstName)
+    await page.fill('[data-testid="last-name"], [name="lastName"], #lastName', userData.lastName)
+    await page.fill('[data-testid="email"], [name="email"], #email', userData.email)
+    await page.fill('[data-testid="password"], [name="password"], #password', userData.password)
+    await page.fill('[data-testid="confirm-password"], [name="confirmPassword"], #confirmPassword', userData.password)
+    
+    // Accept terms if checkbox exists
+    const termsCheckbox = page.locator('[data-testid="terms"], [name="terms"], #terms')
+    if (await termsCheckbox.count() > 0) {
+      await termsCheckbox.check()
+    }
+    
+    // Submit registration
+    await page.click('[data-testid="register-button"], [type="submit"], button:has-text("Register")')
+    
+    // Verify successful registration
+    await expect(page).toHaveURL(/.*dashboard|.*profile|.*account|.*welcome/)
+    
+    // Check for success message or user indicator
+    await expect(
+      page.locator('[data-testid="welcome-message"], .welcome, .success')
+        .or(page.locator(`text=${userData.firstName}`))
+    ).toBeVisible()
+  })
+
+  test('registration fails with invalid email', async ({ page }) => {
+    await page.goto('{{targetUrl}}/register')
+    
+    await page.fill('[data-testid="email"], [name="email"], #email', 'invalid-email')
+    await page.fill('[data-testid="password"], [name="password"], #password', 'SecurePass123!')
+    await page.click('[data-testid="register-button"], [type="submit"], button:has-text("Register")')
+    
+    // Check for error message
+    await expect(
+      page.locator('[data-testid="email-error"], .error, .invalid-feedback')
+    ).toBeVisible()
+  })
+
+  test('registration fails with weak password', async ({ page }) => {
+    await page.goto('{{targetUrl}}/register')
+    
+    await page.fill('[data-testid="email"], [name="email"], #email', faker.internet.email())
+    await page.fill('[data-testid="password"], [name="password"], #password', '123')
+    await page.click('[data-testid="register-button"], [type="submit"], button:has-text("Register")')
+    
+    // Check for password strength error
+    await expect(
+      page.locator('[data-testid="password-error"], .error, .invalid-feedback')
+    ).toBeVisible()
+  })
+
+  test('registration fails with mismatched passwords', async ({ page }) => {
+    await page.goto('{{targetUrl}}/register')
+    
+    await page.fill('[data-testid="email"], [name="email"], #email', faker.internet.email())
+    await page.fill('[data-testid="password"], [name="password"], #password', 'SecurePass123!')
+    await page.fill('[data-testid="confirm-password"], [name="confirmPassword"], #confirmPassword', 'DifferentPass123!')
+    await page.click('[data-testid="register-button"], [type="submit"], button:has-text("Register")')
+    
+    // Check for password mismatch error
+    await expect(
+      page.locator('[data-testid="confirm-password-error"], .error, .invalid-feedback')
+    ).toBeVisible()
+  })
+})

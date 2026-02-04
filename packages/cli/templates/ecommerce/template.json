@@ -1,0 +1,35 @@
+{
+  "name": "E-commerce Testing Template",
+  "description": "Comprehensive e-commerce testing patterns including checkout, cart, products, and user flows",
+  "industry": "ecommerce",
+  "version": "1.0.0",
+  "dependencies": {
+    "@playwright/test": "^1.40.0",
+    "@faker-js/faker": "^8.2.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.2.2",
+    "@types/node": "^20.8.0"
+  },
+  "scripts": {
+    "test": "playwright test",
+    "test:auth": "playwright test tests/auth",
+    "test:products": "playwright test tests/products",
+    "test:checkout": "playwright test tests/checkout",
+    "test:cart": "playwright test tests/cart",
+    "test:search": "playwright test tests/search",
+    "test:headed": "playwright test --headed",
+    "test:debug": "playwright test --debug"
+  },
+  "features": [
+    "User Authentication",
+    "Product Catalog",
+    "Shopping Cart",
+    "Checkout Flow",
+    "Payment Processing",
+    "Order Management",
+    "Search & Filters",
+    "Wishlist",
+    "Reviews & Ratings"
+  ]
+}

@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { fc } from 'fast-check'
+import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import * as fc from 'fast-check'
 import { EventEmitter } from 'events'
 
 /**
@@ -377,7 +377,7 @@ describe('Message Ordering Property Tests', () => {
       fc.property(
         fc.record({
           totalMessages: fc.integer({ min: 10, max: 30 }),
-          missingPercentage: fc.float({ min: 0.1, max: 0.5 })
+          missingPercentage: fc.float({ min: Math.fround(0.1), max: Math.fround(0.5) })
         }),
         ({ totalMessages, missingPercentage }) => {
           const missingMessages: number[] = []
@@ -509,9 +509,14 @@ describe('Message Ordering Unit Tests', () => {
 
     // Configure small buffer for testing
     messageManager = new MessageOrderingManager({ maxOutOfOrderBuffer: 3 })
+    
+    // Re-attach event listener after recreating manager
+    messageManager.on('bufferOverflow', ({ message }) => {
+      bufferOverflows.push(message)
+    })
 
-    // Send messages that will overflow the buffer
-    for (let i = 10; i <= 15; i++) {
+    // Send messages that will overflow the buffer (start from sequence 5 to force buffering)
+    for (let i = 5; i <= 10; i++) {
       const message = messageGenerator.generateMessage()
       message.sequenceNumber = i
       messageManager.processMessage(message)

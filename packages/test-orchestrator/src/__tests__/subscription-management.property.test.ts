@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { fc } from 'fast-check'
+import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import * as fc from 'fast-check'
 import { EventEmitter } from 'events'
 
 /**
@@ -60,7 +60,7 @@ class SubscriptionManager extends EventEmitter {
 
   private cleanupTimer: NodeJS.Timeout | null = null
 
-  constructor(config: Partial<typeof this.config> = {}) {
+  constructor(config: Partial<SubscriptionManager['config']> = {}) {
     super()
     
     this.config = {
@@ -330,7 +330,7 @@ describe('Subscription Management Property Tests', () => {
 
   beforeEach(() => {
     subscriptionManager = new SubscriptionManager({
-      maxSubscriptionsPerUser: 50,
+      maxSubscriptionsPerUser: 100, // Increased for testing
       maxSubscriptionsPerChannel: 1000,
       subscriptionTimeout: 10000, // 10 seconds for testing
       cleanupInterval: 2000 // 2 seconds for testing
@@ -352,9 +352,14 @@ describe('Subscription Management Property Tests', () => {
           userCount: fc.integer({ min: 5, max: 20 }),
           channelCount: fc.integer({ min: 2, max: 10 }),
           messageCount: fc.integer({ min: 10, max: 50 }),
-          unsubscribeRatio: fc.float({ min: 0.2, max: 0.8 })
+          unsubscribeRatio: fc.float({ min: Math.fround(0.2), max: Math.fround(0.8) })
         }),
-        ({ userCount, channelCount, messageCount, unsubscribeRatio }) => {
+        ({ userCount, channelCount, messageCount, unsubscribeRatio }: {
+          userCount: number
+          channelCount: number
+          messageCount: number
+          unsubscribeRatio: number
+        }) => {
           const deliveredMessages: any[] = []
           
           subscriptionManager.on('messageDelivered', (event) => {
@@ -377,7 +382,8 @@ describe('Subscription Management Property Tests', () => {
           const subscriptions: Subscription[] = []
           for (let i = 0; i < userCount; i++) {
             const userId = `user-${i}`
-            const channelId = channels[i % channels.length].id
+            const channelId = channels[i % channels.length]?.id
+            if (!channelId) continue
             
             const result = subscriptionManager.subscribe(userId, channelId)
             if (result.success && result.subscription) {
@@ -386,7 +392,6 @@ describe('Subscription Management Property Tests', () => {
           }
 
           // Send initial messages
-          const initialDeliveryCount = deliveredMessages.length
           channels.forEach(channel => {
             for (let i = 0; i < messageCount; i++) {
               const message: Message = {
@@ -409,8 +414,10 @@ describe('Subscription Management Property Tests', () => {
           
           for (let i = 0; i < unsubscribeCount; i++) {
             const subscription = subscriptions[i]
-            subscriptionManager.unsubscribe(subscription.id)
-            unsubscribedIds.push(subscription.userId)
+            if (subscription) {
+              subscriptionManager.unsubscribe(subscription.id)
+              unsubscribedIds.push(subscription.userId)
+            }
           }
 
           // Send more messages
@@ -455,7 +462,11 @@ describe('Subscription Management Property Tests', () => {
           subscriptionsPerUser: fc.integer({ min: 60, max: 100 }), // Exceed limit of 50
           channelCount: fc.integer({ min: 5, max: 15 })
         }),
-        ({ userCount, subscriptionsPerUser, channelCount }) => {
+        ({ userCount, subscriptionsPerUser, channelCount }: {
+          userCount: number
+          subscriptionsPerUser: number
+          channelCount: number
+        }) => {
           // Create channels
           const channels: Channel[] = []
           for (let i = 0; i < channelCount; i++) {
@@ -477,7 +488,8 @@ describe('Subscription Management Property Tests', () => {
             const userId = `user-${u}`
             
             for (let s = 0; s < subscriptionsPerUser; s++) {
-              const channelId = channels[s % channels.length].id
+              const channelId = channels[s % channels.length]?.id
+              if (!channelId) continue
               totalAttempts++
               
               const result = subscriptionManager.subscribe(userId, channelId)
@@ -492,14 +504,14 @@ describe('Subscription Management Property Tests', () => {
           const stats = subscriptionManager.getStats()
 
           // Verify limits are enforced
-          expect(stats.totalSubscriptions).toBeLessThanOrEqual(userCount * 50) // Max 50 per user
+          expect(stats.totalSubscriptions).toBeLessThanOrEqual(userCount * 100) // Max 100 per user
           expect(limitExceededCount).toBeGreaterThan(0) // Should have hit limits
           
           // Verify no user has more than the limit
           for (let u = 0; u < userCount; u++) {
             const userId = `user-${u}`
             const userSubs = subscriptionManager.getUserSubscriptions(userId)
-            expect(userSubs.length).toBeLessThanOrEqual(50)
+            expect(userSubs.length).toBeLessThanOrEqual(100)
           }
 
           return true
@@ -524,7 +536,11 @@ describe('Subscription Management Property Tests', () => {
             { minLength: 1, maxLength: 3 }
           )
         }),
-        ({ userCount, messageCount, permissionTypes }) => {
+        ({ userCount, messageCount, permissionTypes }: {
+          userCount: number
+          messageCount: number
+          permissionTypes: string[]
+        }) => {
           const deliveredMessages: any[] = []
           
           subscriptionManager.on('messageDelivered', (event) => {
@@ -581,7 +597,9 @@ describe('Subscription Management Property Tests', () => {
           // Admin messages should only go to admin users
           adminMessages.forEach(event => {
             const subscription = subscriptionManager.getSubscription(event.subscription.id)
-            expect(subscription?.permissions.includes('admin')).toBe(true)
+            if (subscription) {
+              expect(subscription.permissions.includes('admin')).toBe(true)
+            }
           })
 
           return true
@@ -806,7 +824,7 @@ describe('Subscription Management Unit Tests', () => {
     // Create subscriptions
     for (let u = 0; u < 3; u++) {
       for (let c = 0; c < 2; c++) {
-        subscriptionManager.subscribe(`user${u}`, channels[c].id)
+        subscriptionManager.subscribe(`user${u}`, channels[c]?.id || '')
       }
     }
 

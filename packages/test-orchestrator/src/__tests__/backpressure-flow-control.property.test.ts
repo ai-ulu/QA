@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { fc } from 'fast-check'
+import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import * as fc from 'fast-check'
 import { EventEmitter } from 'events'
 
 /**

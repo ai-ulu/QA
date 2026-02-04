@@ -1,0 +1,70 @@
+import { test, expect } from '@playwright/test'
+
+test.describe('{{projectName}} App', () => {
+  test('homepage loads successfully', async ({ page }) => {
+    await page.goto('/')
+    
+    // Check for React app root
+    await expect(page.locator('#root')).toBeVisible()
+    
+    // Check for main heading
+    await expect(page.locator('h1')).toBeVisible()
+    
+    // Take screenshot
+    await page.screenshot({ path: 'test-results/homepage.png' })
+  })
+
+  test('navigation works', async ({ page }) => {
+    await page.goto('/')
+    
+    // Test navigation if it exists
+    const nav = page.locator('nav')
+    if (await nav.count() > 0) {
+      const firstLink = nav.locator('a').first()
+      if (await firstLink.count() > 0) {
+        await firstLink.click()
+        await page.waitForLoadState('networkidle')
+      }
+    }
+  })
+
+  test('responsive design', async ({ page }) => {
+    // Mobile viewport
+    await page.setViewportSize({ width: 375, height: 667 })
+    await page.goto('/')
+    await expect(page.locator('#root')).toBeVisible()
+    await page.screenshot({ path: 'test-results/mobile.png' })
+    
+    // Tablet viewport
+    await page.setViewportSize({ width: 768, height: 1024 })
+    await page.goto('/')
+    await page.screenshot({ path: 'test-results/tablet.png' })
+    
+    // Desktop viewport
+    await page.setViewportSize({ width: 1920, height: 1080 })
+    await page.goto('/')
+    await page.screenshot({ path: 'test-results/desktop.png' })
+  })
+
+  test('accessibility basics', async ({ page }) => {
+    await page.goto('/')
+    
+    // Check for proper heading hierarchy
+    const h1Count = await page.locator('h1').count()
+    expect(h1Count).toBeGreaterThanOrEqual(1)
+    
+    // Check for alt text on images
+    const images = page.locator('img')
+    const imageCount = await images.count()
+    
+    for (let i = 0; i < imageCount; i++) {
+      const img = images.nth(i)
+      const alt = await img.getAttribute('alt')
+      const src = await img.getAttribute('src')
+      
+      if (src && !src.startsWith('data:') && !alt) {
+        console.warn(`Image missing alt text: ${src}`)
+      }
+    }
+  })
+})

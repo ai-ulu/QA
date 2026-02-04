@@ -1,0 +1,36 @@
+{
+  "name": "React Testing Template",
+  "description": "Complete React application testing setup with component and E2E tests",
+  "framework": "react",
+  "version": "1.0.0",
+  "dependencies": {
+    "@playwright/test": "^1.40.0",
+    "@testing-library/react": "^13.4.0",
+    "@testing-library/jest-dom": "^6.1.0",
+    "@testing-library/user-event": "^14.5.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.2.2",
+    "@types/node": "^20.8.0",
+    "@types/react": "^18.2.0",
+    "@vitejs/plugin-react": "^4.1.0",
+    "vite": "^4.5.0"
+  },
+  "scripts": {
+    "test": "playwright test",
+    "test:component": "playwright test --config=playwright-ct.config.ts",
+    "test:e2e": "playwright test tests/e2e",
+    "test:headed": "playwright test --headed",
+    "test:debug": "playwright test --debug",
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "features": [
+    "Component Testing",
+    "E2E Testing",
+    "Visual Regression",
+    "Accessibility Testing",
+    "Mobile Testing"
+  ]
+}

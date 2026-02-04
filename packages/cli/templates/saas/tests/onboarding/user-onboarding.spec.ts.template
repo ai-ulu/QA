@@ -1,0 +1,178 @@
+import { test, expect } from '@playwright/test'
+import { faker } from '@faker-js/faker'
+
+test.describe('User Onboarding Flow', () => {
+  test('complete onboarding process for new user', async ({ page }) => {
+    const userData = {
+      email: faker.internet.email(),
+      password: 'SecurePass123!',
+      companyName: faker.company.name(),
+      role: 'Product Manager'
+    }
+
+    // Sign up
+    await page.goto('{{targetUrl}}/signup')
+    await page.fill('[data-testid="email"], [name="email"]', userData.email)
+    await page.fill('[data-testid="password"], [name="password"]', userData.password)
+    await page.click('[data-testid="signup-button"], button:has-text("Sign Up")')
+
+    // Step 1: Company Information
+    await expect(page.locator('[data-testid="onboarding-step-1"], .onboarding-step')).toBeVisible()
+    await page.fill('[data-testid="company-name"], [name="companyName"]', userData.companyName)
+    
+    // Select company size
+    await page.selectOption('[data-testid="company-size"], [name="companySize"]', '10-50')
+    
+    // Select industry
+    await page.selectOption('[data-testid="industry"], [name="industry"]', 'Technology')
+    
+    await page.click('[data-testid="next-step"], button:has-text("Next")')
+
+    // Step 2: Role and Goals
+    await expect(page.locator('[data-testid="onboarding-step-2"]')).toBeVisible()
+    await page.fill('[data-testid="role"], [name="role"]', userData.role)
+    
+    // Select primary goal
+    await page.check('[data-testid="goal-productivity"], [value="productivity"]')
+    
+    await page.click('[data-testid="next-step"], button:has-text("Next")')
+
+    // Step 3: Feature Selection
+    await expect(page.locator('[data-testid="onboarding-step-3"]')).toBeVisible()
+    
+    // Select features to enable
+    await page.check('[data-testid="feature-analytics"], [value="analytics"]')
+    await page.check('[data-testid="feature-integrations"], [value="integrations"]')
+    
+    await page.click('[data-testid="next-step"], button:has-text("Next")')
+
+    // Step 4: Team Invitation (optional)
+    await expect(page.locator('[data-testid="onboarding-step-4"]')).toBeVisible()
+    
+    // Skip team invitation for now
+    await page.click('[data-testid="skip-team"], button:has-text("Skip")')
+
+    // Complete onboarding
+    await page.click('[data-testid="complete-onboarding"], button:has-text("Complete")')
+
+    // Verify dashboard access
+    await expect(page).toHaveURL(/.*dashboard/)
+    await expect(page.locator('[data-testid="welcome-message"]')).toContainText(userData.companyName)
+    
+    // Verify onboarding completion
+    await expect(page.locator('[data-testid="onboarding-complete"]')).toBeVisible()
+  })
+
+  test('can skip optional onboarding steps', async ({ page }) => {
+    const userData = {
+      email: faker.internet.email(),
+      password: 'SecurePass123!'
+    }
+
+    await page.goto('{{targetUrl}}/signup')
+    await page.fill('[data-testid="email"]', userData.email)
+    await page.fill('[data-testid="password"]', userData.password)
+    await page.click('[data-testid="signup-button"]')
+
+    // Skip company information
+    const skipButton = page.locator('[data-testid="skip-step"], button:has-text("Skip")')
+    if (await skipButton.count() > 0) {
+      await skipButton.click()
+    }
+
+    // Should still reach dashboard
+    await expect(page).toHaveURL(/.*dashboard/)
+  })
+
+  test('onboarding progress is saved between sessions', async ({ page, context }) => {
+    const userData = {
+      email: faker.internet.email(),
+      password: 'SecurePass123!',
+      companyName: faker.company.name()
+    }
+
+    // Start onboarding
+    await page.goto('{{targetUrl}}/signup')
+    await page.fill('[data-testid="email"]', userData.email)
+    await page.fill('[data-testid="password"]', userData.password)
+    await page.click('[data-testid="signup-button"]')
+
+    // Complete first step
+    await page.fill('[data-testid="company-name"]', userData.companyName)
+    await page.click('[data-testid="next-step"]')
+
+    // Verify we're on step 2
+    await expect(page.locator('[data-testid="onboarding-step-2"]')).toBeVisible()
+
+    // Simulate page refresh/new session
+    await page.reload()
+
+    // Should resume from step 2
+    await expect(page.locator('[data-testid="onboarding-step-2"]')).toBeVisible()
+    
+    // Company name should be preserved
+    const companyNameField = page.locator('[data-testid="company-name"]')
+    if (await companyNameField.count() > 0) {
+      await expect(companyNameField).toHaveValue(userData.companyName)
+    }
+  })
+
+  test('can restart onboarding process', async ({ page }) => {
+    // Assume user is logged in and has completed onboarding
+    await page.goto('{{targetUrl}}/dashboard')
+    
+    // Look for restart onboarding option
+    const restartButton = page.locator('[data-testid="restart-onboarding"], a:has-text("Restart Onboarding")')
+    
+    if (await restartButton.count() > 0) {
+      await restartButton.click()
+      
+      // Should go back to first onboarding step
+      await expect(page.locator('[data-testid="onboarding-step-1"]')).toBeVisible()
+    }
+  })
+
+  test('onboarding includes product tour', async ({ page }) => {
+    const userData = {
+      email: faker.internet.email(),
+      password: 'SecurePass123!'
+    }
+
+    await page.goto('{{targetUrl}}/signup')
+    await page.fill('[data-testid="email"]', userData.email)
+    await page.fill('[data-testid="password"]', userData.password)
+    await page.click('[data-testid="signup-button"]')
+
+    // Complete onboarding quickly
+    await page.click('[data-testid="skip-onboarding"], button:has-text("Skip to Dashboard")')
+
+    // Look for product tour
+    const tourStart = page.locator('[data-testid="start-tour"], button:has-text("Take Tour")')
+    
+    if (await tourStart.count() > 0) {
+      await tourStart.click()
+      
+      // Verify tour overlay appears
+      await expect(page.locator('[data-testid="tour-overlay"], .tour-step')).toBeVisible()
+      
+      // Go through tour steps
+      const nextButton = page.locator('[data-testid="tour-next"], button:has-text("Next")')
+      let stepCount = 0
+      
+      while (await nextButton.count() > 0 && stepCount < 10) {
+        await nextButton.click()
+        stepCount++
+        await page.waitForTimeout(500)
+      }
+      
+      // Complete tour
+      const finishButton = page.locator('[data-testid="tour-finish"], button:has-text("Finish")')
+      if (await finishButton.count() > 0) {
+        await finishButton.click()
+      }
+      
+      // Tour should be dismissed
+      await expect(page.locator('[data-testid="tour-overlay"]')).not.toBeVisible()
+    }
+  })
+})

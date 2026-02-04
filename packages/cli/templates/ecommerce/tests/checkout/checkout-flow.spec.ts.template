@@ -1,0 +1,144 @@
+import { test, expect } from '@playwright/test'
+import { faker } from '@faker-js/faker'
+
+test.describe('Checkout Flow', () => {
+  test.beforeEach(async ({ page }) => {
+    // Add a product to cart before each test
+    await page.goto('{{targetUrl}}/products')
+    
+    // Find and click first "Add to Cart" button
+    const addToCartButton = page.locator('[data-testid="add-to-cart"], button:has-text("Add to Cart")').first()
+    await addToCartButton.click()
+    
+    // Wait for cart update
+    await page.waitForTimeout(1000)
+  })
+
+  test('complete checkout process with valid information', async ({ page }) => {
+    // Go to cart
+    await page.click('[data-testid="cart-icon"], [href*="cart"], a:has-text("Cart")')
+    
+    // Verify item is in cart
+    await expect(page.locator('[data-testid="cart-item"], .cart-item')).toBeVisible()
+    
+    // Proceed to checkout
+    await page.click('[data-testid="checkout-button"], button:has-text("Checkout")')
+    
+    // Fill shipping information
+    const shippingInfo = {
+      firstName: faker.person.firstName(),
+      lastName: faker.person.lastName(),
+      email: faker.internet.email(),
+      address: faker.location.streetAddress(),
+      city: faker.location.city(),
+      zipCode: faker.location.zipCode(),
+      phone: faker.phone.number()
+    }
+    
+    await page.fill('[data-testid="shipping-first-name"], [name="firstName"]', shippingInfo.firstName)
+    await page.fill('[data-testid="shipping-last-name"], [name="lastName"]', shippingInfo.lastName)
+    await page.fill('[data-testid="shipping-email"], [name="email"]', shippingInfo.email)
+    await page.fill('[data-testid="shipping-address"], [name="address"]', shippingInfo.address)
+    await page.fill('[data-testid="shipping-city"], [name="city"]', shippingInfo.city)
+    await page.fill('[data-testid="shipping-zip"], [name="zipCode"]', shippingInfo.zipCode)
+    await page.fill('[data-testid="shipping-phone"], [name="phone"]', shippingInfo.phone)
+    
+    // Continue to payment
+    await page.click('[data-testid="continue-to-payment"], button:has-text("Continue")')
+    
+    // Fill payment information (test card)
+    await page.fill('[data-testid="card-number"], [name="cardNumber"]', '4242424242424242')
+    await page.fill('[data-testid="card-expiry"], [name="expiry"]', '12/25')
+    await page.fill('[data-testid="card-cvc"], [name="cvc"]', '123')
+    await page.fill('[data-testid="card-name"], [name="cardName"]', `${shippingInfo.firstName} ${shippingInfo.lastName}`)
+    
+    // Place order
+    await page.click('[data-testid="place-order"], button:has-text("Place Order")')
+    
+    // Verify order success
+    await expect(page.locator('[data-testid="order-success"], .order-success, .success')).toBeVisible()
+    
+    // Check for order number
+    await expect(page.locator('[data-testid="order-number"], .order-number')).toBeVisible()
+    
+    // Take screenshot of success page
+    await page.screenshot({ path: 'test-results/checkout-success.png' })
+  })
+
+  test('checkout fails with invalid payment information', async ({ page }) => {
+    await page.click('[data-testid="cart-icon"], [href*="cart"], a:has-text("Cart")')
+    await page.click('[data-testid="checkout-button"], button:has-text("Checkout")')
+    
+    // Fill minimal shipping info
+    await page.fill('[data-testid="shipping-email"], [name="email"]', faker.internet.email())
+    await page.fill('[data-testid="shipping-first-name"], [name="firstName"]', faker.person.firstName())
+    await page.fill('[data-testid="shipping-last-name"], [name="lastName"]', faker.person.lastName())
+    
+    // Continue to payment
+    await page.click('[data-testid="continue-to-payment"], button:has-text("Continue")')
+    
+    // Use invalid card number
+    await page.fill('[data-testid="card-number"], [name="cardNumber"]', '4000000000000002')
+    await page.fill('[data-testid="card-expiry"], [name="expiry"]', '12/25')
+    await page.fill('[data-testid="card-cvc"], [name="cvc"]', '123')
+    
+    // Attempt to place order
+    await page.click('[data-testid="place-order"], button:has-text("Place Order")')
+    
+    // Verify error message
+    await expect(page.locator('[data-testid="payment-error"], .error, .payment-error')).toBeVisible()
+  })
+
+  test('can update cart quantities during checkout', async ({ page }) => {
+    await page.click('[data-testid="cart-icon"], [href*="cart"], a:has-text("Cart")')
+    
+    // Update quantity
+    const quantityInput = page.locator('[data-testid="quantity"], [name="quantity"]').first()
+    await quantityInput.fill('2')
+    
+    // Wait for price update
+    await page.waitForTimeout(1000)
+    
+    // Verify total price updated
+    const total = page.locator('[data-testid="cart-total"], .total')
+    await expect(total).toBeVisible()
+  })
+
+  test('can apply discount codes', async ({ page }) => {
+    await page.click('[data-testid="cart-icon"], [href*="cart"], a:has-text("Cart")')
+    
+    // Apply discount code if field exists
+    const discountField = page.locator('[data-testid="discount-code"], [name="discountCode"]')
+    if (await discountField.count() > 0) {
+      await discountField.fill('TEST10')
+      await page.click('[data-testid="apply-discount"], button:has-text("Apply")')
+      
+      // Check for discount applied message
+      await expect(
+        page.locator('[data-testid="discount-applied"], .discount-success')
+      ).toBeVisible()
+    }
+  })
+
+  test('guest checkout works without registration', async ({ page }) => {
+    await page.click('[data-testid="cart-icon"], [href*="cart"], a:has-text("Cart")')
+    await page.click('[data-testid="checkout-button"], button:has-text("Checkout")')
+    
+    // Choose guest checkout if option exists
+    const guestCheckout = page.locator('[data-testid="guest-checkout"], button:has-text("Guest")')
+    if (await guestCheckout.count() > 0) {
+      await guestCheckout.click()
+    }
+    
+    // Fill guest information
+    await page.fill('[data-testid="shipping-email"], [name="email"]', faker.internet.email())
+    await page.fill('[data-testid="shipping-first-name"], [name="firstName"]', faker.person.firstName())
+    await page.fill('[data-testid="shipping-last-name"], [name="lastName"]', faker.person.lastName())
+    
+    // Verify can proceed without account creation
+    await page.click('[data-testid="continue-to-payment"], button:has-text("Continue")')
+    
+    // Should reach payment step
+    await expect(page.locator('[data-testid="payment-section"], .payment')).toBeVisible()
+  })
+})

@@ -1,0 +1,125 @@
+import { test, expect } from '@playwright/test'
+
+test.describe('Server-Side Rendering', () => {
+  test('page renders on server with correct content', async ({ page }) => {
+    // Disable JavaScript to test SSR
+    await page.context().addInitScript(() => {
+      delete (window as any).navigator
+    })
+
+    await page.goto('{{targetUrl}}/')
+    
+    // Content should be present even without JavaScript
+    await expect(page.locator('h1')).toBeVisible()
+    await expect(page.locator('main')).toBeVisible()
+    
+    // Check for Next.js specific elements
+    await expect(page.locator('#__next')).toBeVisible()
+  })
+
+  test('dynamic routes work with SSR', async ({ page }) => {
+    // Test dynamic route like /posts/[id]
+    await page.goto('{{targetUrl}}/posts/1')
+    
+    // Should render without JavaScript
+    await expect(page.locator('h1')).toBeVisible()
+    
+    // Check for dynamic content
+    await expect(page.locator('[data-testid="post-content"]')).toBeVisible()
+  })
+
+  test('getServerSideProps data is available on page load', async ({ page }) => {
+    await page.goto('{{targetUrl}}/ssr-example')
+    
+    // Data from getServerSideProps should be immediately available
+    const serverData = page.locator('[data-testid="server-data"]')
+    await expect(serverData).toBeVisible()
+    
+    // Should contain server-generated timestamp
+    const timestamp = await serverData.textContent()
+    expect(timestamp).toMatch(/\d{4}-\d{2}-\d{2}/)
+  })
+
+  test('static generation works correctly', async ({ page }) => {
+    await page.goto('{{targetUrl}}/static-example')
+    
+    // Static content should load immediately
+    await expect(page.locator('h1')).toBeVisible()
+    
+    // Check for build-time generated content
+    const buildTime = page.locator('[data-testid="build-time"]')
+    if (await buildTime.count() > 0) {
+      await expect(buildTime).toBeVisible()
+    }
+  })
+
+  test('client-side navigation works after SSR', async ({ page }) => {
+    await page.goto('{{targetUrl}}/')
+    
+    // Initial page should be server-rendered
+    await expect(page.locator('h1')).toBeVisible()
+    
+    // Click navigation link
+    const navLink = page.locator('a[href="/about"]')
+    if (await navLink.count() > 0) {
+      await navLink.click()
+      
+      // Should navigate without full page reload (client-side)
+      await expect(page).toHaveURL(/.*about/)
+      await expect(page.locator('h1')).toBeVisible()
+    }
+  })
+
+  test('SEO meta tags are rendered correctly', async ({ page }) => {
+    await page.goto('{{targetUrl}}/')
+    
+    // Check for essential SEO tags
+    const title = await page.title()
+    expect(title).toBeTruthy()
+    expect(title.length).toBeGreaterThan(0)
+    
+    // Check meta description
+    const metaDescription = page.locator('meta[name="description"]')
+    if (await metaDescription.count() > 0) {
+      const description = await metaDescription.getAttribute('content')
+      expect(description).toBeTruthy()
+    }
+    
+    // Check Open Graph tags
+    const ogTitle = page.locator('meta[property="og:title"]')
+    if (await ogTitle.count() > 0) {
+      const ogTitleContent = await ogTitle.getAttribute('content')
+      expect(ogTitleContent).toBeTruthy()
+    }
+  })
+
+  test('page loads fast with proper optimization', async ({ page }) => {
+    const startTime = Date.now()
+    
+    await page.goto('{{targetUrl}}/')
+    await page.waitForLoadState('networkidle')
+    
+    const loadTime = Date.now() - startTime
+    
+    // Page should load within reasonable time (adjust as needed)
+    expect(loadTime).toBeLessThan(3000)
+    
+    // Check for Next.js optimizations
+    const images = page.locator('img')
+    const imageCount = await images.count()
+    
+    for (let i = 0; i < imageCount; i++) {
+      const img = images.nth(i)
+      const src = await img.getAttribute('src')
+      
+      // Next.js Image component should optimize images
+      if (src && !src.startsWith('data:')) {
+        // Check if image is optimized (Next.js adds query params)
+        const isOptimized = src.includes('_next/image') || src.includes('w=') || src.includes('q=')
+        if (!isOptimized) {
+          console.warn(`Unoptimized image found: ${src}`)
+        }
+      }
+    }
+  })
+})

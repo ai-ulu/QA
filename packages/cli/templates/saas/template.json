@@ -1,0 +1,35 @@
+{
+  "name": "SaaS Testing Template",
+  "description": "Complete SaaS application testing including auth, billing, features, and admin workflows",
+  "industry": "saas",
+  "version": "1.0.0",
+  "dependencies": {
+    "@playwright/test": "^1.40.0",
+    "@faker-js/faker": "^8.2.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.2.2",
+    "@types/node": "^20.8.0"
+  },
+  "scripts": {
+    "test": "playwright test",
+    "test:auth": "playwright test tests/auth",
+    "test:billing": "playwright test tests/billing",
+    "test:features": "playwright test tests/features",
+    "test:admin": "playwright test tests/admin",
+    "test:onboarding": "playwright test tests/onboarding",
+    "test:headed": "playwright test --headed",
+    "test:debug": "playwright test --debug"
+  },
+  "features": [
+    "User Authentication",
+    "Subscription Management",
+    "Billing & Payments",
+    "Feature Access Control",
+    "User Onboarding",
+    "Admin Dashboard",
+    "Team Management",
+    "API Access",
+    "Analytics & Reporting"
+  ]
+}
