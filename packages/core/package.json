@@ -1,0 +1,48 @@
+{
+  "name": "@autoqa/core",
+  "version": "1.0.0",
+  "description": "Open source core test execution engine for AutoQA - run tests locally without cloud services",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "license": "MIT",
+  "keywords": [
+    "testing",
+    "playwright",
+    "e2e",
+    "automation",
+    "test-runner",
+    "open-source"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/agiulucom42-del/QA.git",
+    "directory": "packages/core"
+  },
+  "bugs": {
+    "url": "https://github.com/agiulucom42-del/QA/issues"
+  },
+  "homepage": "https://github.com/agiulucom42-del/QA/tree/main/packages/core#readme",
+  "scripts": {
+    "build": "tsc",
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "lint": "eslint src --ext .ts",
+    "prepublishOnly": "npm run build"
+  },
+  "dependencies": {
+    "playwright": "^1.40.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "typescript": "^5.3.0",
+    "jest": "^29.7.0",
+    "@types/jest": "^29.5.0",
+    "ts-jest": "^29.1.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

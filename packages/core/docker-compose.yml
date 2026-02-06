@@ -1,0 +1,22 @@
+version: '3.8'
+
+services:
+  autoqa-core:
+    build: .
+    image: autoqa-core:latest
+    container_name: autoqa-core
+    volumes:
+      - ./tests:/app/tests:ro
+      - ./reports:/app/reports
+    environment:
+      - BASE_URL=${BASE_URL:-https://example.com}
+      - HEADLESS=${HEADLESS:-true}
+      - TIMEOUT=${TIMEOUT:-30000}
+      - WORKERS=${WORKERS:-4}
+    restart: unless-stopped
+    networks:
+      - autoqa-network
+
+networks:
+  autoqa-network:
+    driver: bridge

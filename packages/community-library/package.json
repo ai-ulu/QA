@@ -1,0 +1,20 @@
+{
+  "name": "@autoqa/community-library",
+  "version": "1.0.0",
+  "description": "Community test library and sharing platform for AutoQA",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "license": "MIT",
+  "scripts": {
+    "build": "tsc",
+    "test": "jest"
+  },
+  "dependencies": {
+    "@autoqa/core": "^1.0.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.0",
+    "jest": "^29.7.0",
+    "fast-check": "^3.15.0"
+  }
+}

@@ -1,0 +1,9 @@
+src/
+examples/
+__tests__/
+*.test.ts
+tsconfig.json
+jest.config.js
+.eslintrc.js
+docker-compose.yml
+Dockerfile
