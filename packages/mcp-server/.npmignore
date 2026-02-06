@@ -1,0 +1,8 @@
+src/
+__tests__/
+*.test.ts
+tsconfig.json
+jest.config.js
+.env
+coverage/
+*.tsbuildinfo
