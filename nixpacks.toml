@@ -1,17 +1,6 @@
 [phases.setup]
 nixPkgs = ['nodejs_22', 'pnpm-9_x', 'openssl', 'cmake', 'python3', 'pixman', 'cairo', 'pango', 'libjpeg', 'libpng', 'giflib', 'librsvg', 'pkg-config']
-
-[phases.setup.aptPkgs]
-packages = [
-  'libpixman-1-dev',
-  'libcairo2-dev',
-  'libpango1.0-dev',
-  'libjpeg-dev',
-  'libpng-dev',
-  'libgif-dev',
-  'librsvg2-dev',
-  'pkg-config'
-]
+aptPkgs = ['libpixman-1-dev', 'libcairo2-dev', 'libpango1.0-dev', 'libjpeg-dev', 'libpng-dev', 'libgif-dev', 'librsvg2-dev', 'pkg-config', 'build-essential']
 
 [phases.build]
 cmds = ['npx turbo run build']
