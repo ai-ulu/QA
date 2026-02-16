@@ -8,6 +8,7 @@
     "apps/*"
   ],
   "scripts": {
+    "start": "npx serve packages/frontend/dist -p 3000 -s",
     "dev": "turbo run dev",
     "build": "turbo run build",
     "test": "turbo run test",

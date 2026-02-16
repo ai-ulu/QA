@@ -57,4 +57,4 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=40s --retries=3 \
     CMD curl -f http://localhost:3000/health || exit 1
 
 # Start the application
-CMD ["pnpm", "start"]
+CMD ["npx", "serve", "packages/frontend/dist", "-p", "3000", "-s"]
