@@ -1,5 +1,11 @@
 #!/usr/bin/env node
 
+import { execFile } from 'child_process';
+import { mkdir, readdir, readFile, stat, writeFile } from 'fs/promises';
+import { createRequire } from 'module';
+import { dirname, join, resolve, sep } from 'path';
+import { promisify } from 'util';
+
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import {
@@ -9,11 +15,196 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
 
-// AutoQA MCP Server
+type ConfidenceLevel = 'low' | 'medium' | 'high';
+
+type RepoScanResult = {
+  repoPath: string;
+  packageManager: 'pnpm' | 'npm' | 'yarn' | 'unknown';
+  frameworks: string[];
+  playwrightConfigFiles: string[];
+  testFileCount: number;
+  sourceFileCount: number;
+  sampleTestFiles: string[];
+  sampleSourceFiles: string[];
+  recommendedTargets: string[];
+  notes: string[];
+};
+
+type PatchFileResult = {
+  repoPath: string;
+  filePath: string;
+  action: 'replace' | 'append';
+  dryRun: boolean;
+  changed: boolean;
+  matchCount: number;
+  bytesDelta: number;
+  preview: string;
+  diff: string;
+  rollback: {
+    mode: 'replace_entire';
+    filePath: string;
+    previousContent: string;
+    nextContent: string;
+  };
+};
+
+type SuggestedPatch = {
+  repoPath: string;
+  targetFile: string;
+  reason: string;
+  confidence: number;
+  confidenceLevel: ConfidenceLevel;
+  applied: boolean;
+  patch: {
+    action: 'replace';
+    findText: string;
+    content: string;
+    expectedMatches: number;
+    dryRun: boolean;
+  };
+  diff: string;
+  applyResult?: PatchFileResult;
+};
+
+type SemanticReplacement = {
+  kind: 'class' | 'testid' | 'text' | 'route' | 'href' | 'aria-label' | 'role';
+  before: string;
+  after: string;
+};
+
+type ImpactAnalysisResult = {
+  repoPath: string;
+  changedFiles: string[];
+  diffSource: {
+    mode: 'manual' | 'git' | 'working_tree';
+    baseRef?: string;
+    headRef?: string;
+    staged?: boolean;
+    autoBase?: boolean;
+    compareRef?: string;
+  };
+  riskySourceFiles: string[];
+  affectedTests: Array<{
+    file: string;
+    score: number;
+    confidenceLevel: ConfidenceLevel;
+    reasons: string[];
+  }>;
+  suggestedRunTargets: string[];
+  suggestedPatches: SuggestedPatch[];
+  confidenceLevel: ConfidenceLevel;
+  summary: string;
+};
+
+type PullRequestSummary = {
+  repoPath: string;
+  title: string;
+  body: string;
+  affectedTests: string[];
+  suggestedRunTargets: string[];
+  changedFiles: string[];
+};
+
+type CiSummary = {
+  repoPath: string;
+  format: 'markdown' | 'github' | 'plain';
+  diffSource: {
+    mode: 'manual' | 'git' | 'working_tree';
+    baseRef?: string;
+    headRef?: string;
+    staged?: boolean;
+    autoBase?: boolean;
+    compareRef?: string;
+  };
+  summary: string;
+  affectedTests: string[];
+  suggestedRunTargets: string[];
+  changedFiles: string[];
+};
+
+type TargetedRunPlan = {
+  repoPath: string;
+  changedFiles: string[];
+  diffSource: {
+    mode: 'manual' | 'git' | 'working_tree';
+    baseRef?: string;
+    headRef?: string;
+    staged?: boolean;
+    autoBase?: boolean;
+    compareRef?: string;
+  };
+  runGroups: Array<{
+    label: 'highest_priority' | 'secondary' | 'manual_review';
+    tests: string[];
+    rationale: string;
+  }>;
+  confidenceLevel: ConfidenceLevel;
+  warnings: string[];
+};
+
+type RunPlanExecution = {
+  repoPath: string;
+  command: string[];
+  tests: string[];
+  executed: boolean;
+  exitCode: number;
+  status: 'passed' | 'failed' | 'skipped';
+  stdout: string;
+  stderr: string;
+};
+
+type PatchVerification = {
+  repoPath: string;
+  patch: SuggestedPatch;
+  runPlan: TargetedRunPlan;
+  execution: RunPlanExecution;
+  reportPath: string;
+  status: 'passed' | 'failed' | 'skipped';
+};
+
+type RepoSettings = {
+  ignorePatterns: string[];
+  testDirectories: string[];
+  sourceDirectories: string[];
+};
+
+type DiffSignal = {
+  file: string;
+  addedLines: string[];
+  removedLines: string[];
+  changeTypes: string[];
+  semanticReplacements: SemanticReplacement[];
+};
+
+const IGNORED_DIRECTORIES = new Set([
+  '.git',
+  '.dogfood',
+  'node_modules',
+  'dist',
+  'coverage',
+  '.next',
+  '.turbo',
+  '.tmp-fixtures',
+  'playwright-report',
+  'reports',
+  'test-results',
+]);
+
+const TEST_FILE_PATTERN = /(^|[/\\])(tests?|e2e|specs?)([/\\].+)?$|(\.test|\.spec)\.(ts|tsx|js|jsx|mjs|cjs)$/i;
+const SOURCE_FILE_PATTERN = /\.(ts|tsx|js|jsx|mjs|cjs)$/i;
+const execFileAsync = promisify(execFile);
+const require = createRequire(import.meta.url);
+const packageJson = require('../package.json') as { version: string };
+const CACHE_TTL_MS = 3000;
+
+const repoSettingsCache = new Map<string, { expiresAt: number; value: RepoSettings }>();
+const repoFileCache = new Map<string, { expiresAt: number; value: string[] }>();
+const diffSignalCache = new Map<string, { expiresAt: number; value: DiffSignal[] }>();
+
 const server = new Server(
   {
     name: 'autoqa-mcp-server',
-    version: '1.0.0',
+    version: packageJson.version,
   },
   {
     capabilities: {
@@ -22,295 +213,448 @@ const server = new Server(
   }
 );
 
-// Tool Schemas
-const CreateTestSchema = z.object({
-  description: z.string().describe('Natural language description of the test'),
-  url: z.string().optional().describe('URL to test (optional)'),
-  framework: z.enum(['playwright', 'cypress']).default('playwright'),
+const ScanRepoSchema = z.object({
+  repoPath: z.string().min(1),
+  sampleLimit: z.number().int().min(1).max(50).default(10),
 });
 
-const RunTestSchema = z.object({
-  testId: z.string().describe('ID of the test to run'),
-  headless: z.boolean().default(true),
+const PatchFileSchema = z.object({
+  repoPath: z.string().min(1),
+  filePath: z.string().min(1),
+  action: z.enum(['replace', 'append']).default('replace'),
+  findText: z.string().optional(),
+  content: z.string(),
+  expectedMatches: z.number().int().min(0).default(1),
+  dryRun: z.boolean().default(false),
 });
 
-const AnalyzeFailureSchema = z.object({
-  testId: z.string().describe('ID of the failed test'),
-  errorMessage: z.string().describe('Error message from test failure'),
-});
+const SuggestPatchSchema = z.object({
+  repoPath: z.string().min(1),
+  issue: z.string().min(1),
+  changedFiles: z.array(z.string().min(1)).min(1).optional(),
+  baseRef: z.string().min(1).optional(),
+  headRef: z.string().min(1).optional(),
+  workingTree: z.boolean().default(false),
+  staged: z.boolean().default(false),
+  autoBase: z.boolean().default(false),
+  apply: z.boolean().default(false),
+  sampleLimit: z.number().int().min(1).max(20).default(10),
+}).refine(
+  (value) =>
+    !(value.changedFiles?.length || value.baseRef || value.workingTree || value.autoBase) ||
+    Boolean(value.changedFiles?.length) ||
+    Boolean(value.baseRef) ||
+    value.workingTree ||
+    value.autoBase,
+  'Provide changedFiles, baseRef, workingTree, or autoBase when supplying diff context'
+);
 
-const FixTestSchema = z.object({
-  testId: z.string().describe('ID of the test to fix'),
-  strategy: z.enum(['self-healing', 'ai-suggestion', 'both']).default('both'),
-});
+const ImpactAnalysisSchema = z.object({
+  repoPath: z.string().min(1),
+  changedFiles: z.array(z.string().min(1)).min(1).optional(),
+  baseRef: z.string().min(1).optional(),
+  headRef: z.string().min(1).optional(),
+  workingTree: z.boolean().default(false),
+  staged: z.boolean().default(false),
+  autoBase: z.boolean().default(false),
+  sampleLimit: z.number().int().min(1).max(20).default(10),
+}).refine(
+  (value) =>
+    Boolean(value.changedFiles?.length) || Boolean(value.baseRef) || value.workingTree || value.autoBase,
+  'Provide changedFiles, baseRef, workingTree, or autoBase for impact analysis'
+);
 
-const VisualRegressionSchema = z.object({
-  testId: z.string().describe('ID of the test'),
-  baselineUrl: z.string().describe('URL for baseline screenshot'),
-  compareUrl: z.string().describe('URL to compare against baseline'),
-});
+const PullRequestSummarySchema = z.object({
+  repoPath: z.string().min(1),
+  changedFiles: z.array(z.string().min(1)).min(1).optional(),
+  baseRef: z.string().min(1).optional(),
+  headRef: z.string().min(1).optional(),
+  workingTree: z.boolean().default(false),
+  staged: z.boolean().default(false),
+  autoBase: z.boolean().default(false),
+  sampleLimit: z.number().int().min(1).max(20).default(10),
+}).refine(
+  (value) =>
+    Boolean(value.changedFiles?.length) || Boolean(value.baseRef) || value.workingTree || value.autoBase,
+  'Provide changedFiles, baseRef, workingTree, or autoBase for PR summary'
+);
 
-const GenerateReportSchema = z.object({
-  testIds: z.array(z.string()).describe('Array of test IDs to include in report'),
-  format: z.enum(['html', 'json', 'markdown']).default('html'),
-});
+const TargetedRunPlanSchema = z.object({
+  repoPath: z.string().min(1),
+  changedFiles: z.array(z.string().min(1)).min(1).optional(),
+  baseRef: z.string().min(1).optional(),
+  headRef: z.string().min(1).optional(),
+  workingTree: z.boolean().default(false),
+  staged: z.boolean().default(false),
+  autoBase: z.boolean().default(false),
+  sampleLimit: z.number().int().min(1).max(20).default(10),
+}).refine(
+  (value) =>
+    Boolean(value.changedFiles?.length) || Boolean(value.baseRef) || value.workingTree || value.autoBase,
+  'Provide changedFiles, baseRef, workingTree, or autoBase for targeted run planning'
+);
 
-// Available Tools
+const CiSummarySchema = z.object({
+  repoPath: z.string().min(1),
+  changedFiles: z.array(z.string().min(1)).min(1).optional(),
+  baseRef: z.string().min(1).optional(),
+  headRef: z.string().min(1).optional(),
+  workingTree: z.boolean().default(false),
+  staged: z.boolean().default(false),
+  autoBase: z.boolean().default(false),
+  format: z.enum(['markdown', 'github', 'plain']).default('markdown'),
+  sampleLimit: z.number().int().min(1).max(20).default(10),
+}).refine(
+  (value) =>
+    Boolean(value.changedFiles?.length) || Boolean(value.baseRef) || value.workingTree || value.autoBase,
+  'Provide changedFiles, baseRef, workingTree, or autoBase for CI summary'
+);
+
+const ExecuteRunPlanSchema = z.object({
+  repoPath: z.string().min(1),
+  changedFiles: z.array(z.string().min(1)).min(1).optional(),
+  baseRef: z.string().min(1).optional(),
+  headRef: z.string().min(1).optional(),
+  workingTree: z.boolean().default(false),
+  staged: z.boolean().default(false),
+  autoBase: z.boolean().default(false),
+  maxTests: z.number().int().min(1).max(20).default(5),
+  sampleLimit: z.number().int().min(1).max(20).default(10),
+}).refine(
+  (value) =>
+    Boolean(value.changedFiles?.length) || Boolean(value.baseRef) || value.workingTree || value.autoBase,
+  'Provide changedFiles, baseRef, workingTree, or autoBase for run plan execution'
+);
+
+const VerifyPatchSchema = z.object({
+  repoPath: z.string().min(1),
+  issue: z.string().min(1),
+  changedFiles: z.array(z.string().min(1)).min(1).optional(),
+  baseRef: z.string().min(1).optional(),
+  headRef: z.string().min(1).optional(),
+  workingTree: z.boolean().default(false),
+  staged: z.boolean().default(false),
+  autoBase: z.boolean().default(false),
+  maxTests: z.number().int().min(1).max(20).default(5),
+  sampleLimit: z.number().int().min(1).max(20).default(10),
+}).refine(
+  (value) =>
+    Boolean(value.changedFiles?.length) || Boolean(value.baseRef) || value.workingTree || value.autoBase,
+  'Provide changedFiles, baseRef, workingTree, or autoBase for patch verification'
+);
+
 const tools: Tool[] = [
   {
-    name: 'autoqa_create_test',
-    description: 'Create a new E2E test from natural language description. Generates Playwright code with self-healing and best practices.',
+    name: 'autoqa_scan_repo',
+    description:
+      'Inspect a repository, detect Playwright-relevant files, and suggest the best patch targets.',
     inputSchema: {
       type: 'object',
       properties: {
-        description: {
-          type: 'string',
-          description: 'Natural language description of what to test (e.g., "Test login with valid credentials")',
-        },
-        url: {
-          type: 'string',
-          description: 'Optional URL to test',
-        },
-        framework: {
-          type: 'string',
-          enum: ['playwright', 'cypress'],
-          default: 'playwright',
-          description: 'Test framework to use',
-        },
+        repoPath: { type: 'string' },
+        sampleLimit: { type: 'number', default: 10 },
       },
-      required: ['description'],
+      required: ['repoPath'],
     },
   },
   {
-    name: 'autoqa_run_test',
-    description: 'Execute a test and return results with screenshots, videos, and detailed logs.',
+    name: 'autoqa_patch_file',
+    description:
+      'Safely patch a text file inside a repository using exact-match replacement or append mode.',
     inputSchema: {
       type: 'object',
       properties: {
-        testId: {
-          type: 'string',
-          description: 'ID of the test to run',
-        },
-        headless: {
-          type: 'boolean',
-          default: true,
-          description: 'Run in headless mode',
-        },
+        repoPath: { type: 'string' },
+        filePath: { type: 'string' },
+        action: { type: 'string', enum: ['replace', 'append'], default: 'replace' },
+        findText: { type: 'string' },
+        content: { type: 'string' },
+        expectedMatches: { type: 'number', default: 1 },
+        dryRun: { type: 'boolean', default: false },
       },
-      required: ['testId'],
+      required: ['repoPath', 'filePath', 'content'],
     },
   },
   {
-    name: 'autoqa_analyze_failure',
-    description: 'AI-powered root cause analysis for test failures. Provides detailed explanation and fix suggestions.',
+    name: 'autoqa_suggest_patch',
+    description:
+      'Propose a safe dry-run patch for a repository file based on a failure, maintenance issue, or git diff context.',
     inputSchema: {
       type: 'object',
       properties: {
-        testId: {
-          type: 'string',
-          description: 'ID of the failed test',
-        },
-        errorMessage: {
-          type: 'string',
-          description: 'Error message from test failure',
-        },
+        repoPath: { type: 'string' },
+        issue: { type: 'string' },
+        changedFiles: { type: 'array', items: { type: 'string' } },
+        baseRef: { type: 'string' },
+        headRef: { type: 'string' },
+        workingTree: { type: 'boolean', default: false },
+        staged: { type: 'boolean', default: false },
+        autoBase: { type: 'boolean', default: false },
+        apply: { type: 'boolean', default: false },
+        sampleLimit: { type: 'number', default: 10 },
       },
-      required: ['testId', 'errorMessage'],
+      required: ['repoPath', 'issue'],
     },
   },
   {
-    name: 'autoqa_fix_test',
-    description: 'Automatically fix failing tests using self-healing or AI suggestions.',
+    name: 'autoqa_impact_analysis',
+    description:
+      'Map changed repository files to likely affected tests, run targets, and candidate maintenance patches.',
     inputSchema: {
       type: 'object',
       properties: {
-        testId: {
-          type: 'string',
-          description: 'ID of the test to fix',
-        },
-        strategy: {
-          type: 'string',
-          enum: ['self-healing', 'ai-suggestion', 'both'],
-          default: 'both',
-          description: 'Strategy to use for fixing',
-        },
+        repoPath: { type: 'string' },
+        changedFiles: { type: 'array', items: { type: 'string' } },
+        baseRef: { type: 'string' },
+        headRef: { type: 'string' },
+        workingTree: { type: 'boolean', default: false },
+        staged: { type: 'boolean', default: false },
+        autoBase: { type: 'boolean', default: false },
+        sampleLimit: { type: 'number', default: 10 },
       },
-      required: ['testId'],
+      required: ['repoPath'],
     },
   },
   {
-    name: 'autoqa_visual_regression',
-    description: 'Compare screenshots for visual regression testing. Highlights differences and calculates percentage.',
+    name: 'autoqa_pr_summary',
+    description:
+      'Turn a repository diff into a concise PR-style QA maintenance summary with affected tests and patch guidance.',
     inputSchema: {
       type: 'object',
       properties: {
-        testId: {
-          type: 'string',
-          description: 'ID of the test',
-        },
-        baselineUrl: {
-          type: 'string',
-          description: 'URL for baseline screenshot',
-        },
-        compareUrl: {
-          type: 'string',
-          description: 'URL to compare against baseline',
-        },
+        repoPath: { type: 'string' },
+        changedFiles: { type: 'array', items: { type: 'string' } },
+        baseRef: { type: 'string' },
+        headRef: { type: 'string' },
+        workingTree: { type: 'boolean', default: false },
+        staged: { type: 'boolean', default: false },
+        autoBase: { type: 'boolean', default: false },
+        sampleLimit: { type: 'number', default: 10 },
       },
-      required: ['testId', 'baselineUrl', 'compareUrl'],
+      required: ['repoPath'],
     },
   },
   {
-    name: 'autoqa_generate_report',
-    description: 'Generate comprehensive test report with execution history, screenshots, and analytics.',
+    name: 'autoqa_targeted_run_plan',
+    description:
+      'Create a prioritized test execution plan from a repository diff or changed file list.',
     inputSchema: {
       type: 'object',
       properties: {
-        testIds: {
-          type: 'array',
-          items: { type: 'string' },
-          description: 'Array of test IDs to include',
-        },
-        format: {
-          type: 'string',
-          enum: ['html', 'json', 'markdown'],
-          default: 'html',
-          description: 'Report format',
-        },
+        repoPath: { type: 'string' },
+        changedFiles: { type: 'array', items: { type: 'string' } },
+        baseRef: { type: 'string' },
+        headRef: { type: 'string' },
+        workingTree: { type: 'boolean', default: false },
+        staged: { type: 'boolean', default: false },
+        autoBase: { type: 'boolean', default: false },
+        sampleLimit: { type: 'number', default: 10 },
       },
-      required: ['testIds'],
+      required: ['repoPath'],
+    },
+  },
+  {
+    name: 'autoqa_ci_summary',
+    description:
+      'Create a CI-friendly QA summary from a repository diff, PR diff, or working tree changes.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        repoPath: { type: 'string' },
+        changedFiles: { type: 'array', items: { type: 'string' } },
+        baseRef: { type: 'string' },
+        headRef: { type: 'string' },
+        workingTree: { type: 'boolean', default: false },
+        staged: { type: 'boolean', default: false },
+        autoBase: { type: 'boolean', default: false },
+        format: { type: 'string', enum: ['markdown', 'github', 'plain'], default: 'markdown' },
+        sampleLimit: { type: 'number', default: 10 },
+      },
+      required: ['repoPath'],
+    },
+  },
+  {
+    name: 'autoqa_execute_run_plan',
+    description:
+      'Resolve a targeted Playwright run plan from repository changes and execute the selected tests.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        repoPath: { type: 'string' },
+        changedFiles: { type: 'array', items: { type: 'string' } },
+        baseRef: { type: 'string' },
+        headRef: { type: 'string' },
+        workingTree: { type: 'boolean', default: false },
+        staged: { type: 'boolean', default: false },
+        autoBase: { type: 'boolean', default: false },
+        maxTests: { type: 'number', default: 5 },
+        sampleLimit: { type: 'number', default: 10 },
+      },
+      required: ['repoPath'],
+    },
+  },
+  {
+    name: 'autoqa_verify_patch',
+    description:
+      'Apply a high-confidence patch, execute the targeted Playwright run plan, and write a verification report.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        repoPath: { type: 'string' },
+        issue: { type: 'string' },
+        changedFiles: { type: 'array', items: { type: 'string' } },
+        baseRef: { type: 'string' },
+        headRef: { type: 'string' },
+        workingTree: { type: 'boolean', default: false },
+        staged: { type: 'boolean', default: false },
+        autoBase: { type: 'boolean', default: false },
+        maxTests: { type: 'number', default: 5 },
+        sampleLimit: { type: 'number', default: 10 },
+      },
+      required: ['repoPath', 'issue'],
     },
   },
 ];
 
-// List Tools Handler
-server.setRequestHandler(ListToolsRequestSchema, async () => {
-  return { tools };
-});
+server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools }));
 
-// Call Tool Handler
 server.setRequestHandler(CallToolRequestSchema, async (request: any) => {
   const { name, arguments: args } = request.params;
 
   try {
     switch (name) {
-      case 'autoqa_create_test': {
-        const { description, url, framework } = CreateTestSchema.parse(args);
-        
-        // Generate test code using AI
-        const testCode = await generateTestCode(description, url, framework);
-        const testId = generateTestId();
-
-        // Store test in memory
-        testStore.set(testId, {
-          id: testId,
-          description,
-          url,
-          framework,
-          code: testCode,
-          createdAt: new Date(),
-        });
-
-        return {
-          content: [
-            {
-              type: 'text',
-              text: `✅ Test created successfully!\n\nTest ID: ${testId}\n\nGenerated Code:\n\`\`\`typescript\n${testCode}\n\`\`\`\n\nYou can now run this test with: autoqa_run_test`,
-            },
-          ],
-        };
+      case 'autoqa_scan_repo': {
+        const { repoPath, sampleLimit } = ScanRepoSchema.parse(args);
+        const result = await scanRepo(repoPath, sampleLimit);
+        return jsonResult(result);
       }
 
-      case 'autoqa_run_test': {
-        const { testId, headless } = RunTestSchema.parse(args);
-        
-        // Execute test
-        const result = await executeTest(testId, headless);
-
-        return {
-          content: [
-            {
-              type: 'text',
-              text: `${result.status === 'passed' ? '✅' : '❌'} Test execution completed\n\nStatus: ${result.status}\nDuration: ${result.duration}ms\n${result.error ? `\nError: ${result.error}` : ''}\n\nScreenshot: ${result.screenshot || 'N/A'}`,
-            },
-          ],
-        };
+      case 'autoqa_patch_file': {
+        const payload = PatchFileSchema.parse(args);
+        const result = await patchFile(payload);
+        return jsonResult(result);
       }
 
-      case 'autoqa_analyze_failure': {
-        const { testId, errorMessage } = AnalyzeFailureSchema.parse(args);
-        
-        // AI-powered analysis
-        const analysis = await analyzeFailure(testId, errorMessage);
-
-        return {
-          content: [
-            {
-              type: 'text',
-              text: `🔍 Root Cause Analysis\n\n${analysis.explanation}\n\n💡 Suggested Fixes:\n${analysis.suggestions.map((s: string, i: number) => `${i + 1}. ${s}`).join('\n')}`,
-            },
-          ],
-        };
+      case 'autoqa_suggest_patch': {
+        const payload = SuggestPatchSchema.parse(args);
+        const result = await suggestPatch(
+          payload.repoPath,
+          payload.issue,
+          payload.sampleLimit,
+          payload.changedFiles,
+          payload.baseRef,
+          payload.headRef,
+          payload.workingTree,
+          payload.staged,
+          payload.autoBase,
+          payload.apply
+        );
+        return jsonResult(result);
       }
 
-      case 'autoqa_fix_test': {
-        const { testId, strategy } = FixTestSchema.parse(args);
-        
-        // Apply fix
-        const fix = await fixTest(testId, strategy);
-
-        return {
-          content: [
-            {
-              type: 'text',
-              text: `🔧 Test fixed using ${strategy}\n\n${fix.description}\n\nUpdated Code:\n\`\`\`typescript\n${fix.code}\n\`\`\``,
-            },
-          ],
-        };
+      case 'autoqa_impact_analysis': {
+        const payload = ImpactAnalysisSchema.parse(args);
+        const result = await analyzeImpact(
+          payload.repoPath,
+          payload.changedFiles,
+          payload.baseRef,
+          payload.headRef,
+          payload.workingTree,
+          payload.staged,
+          payload.autoBase,
+          payload.sampleLimit
+        );
+        return jsonResult(result);
       }
 
-      case 'autoqa_visual_regression': {
-        const { testId, baselineUrl, compareUrl } = VisualRegressionSchema.parse(args);
-        
-        // Compare screenshots
-        const comparison = await compareScreenshots(testId, baselineUrl, compareUrl);
-
-        return {
-          content: [
-            {
-              type: 'text',
-              text: `📸 Visual Regression Results\n\nDifference: ${comparison.percentage}%\n${comparison.passed ? '✅ No significant changes' : '❌ Visual differences detected'}\n\nDiff Image: ${comparison.diffUrl}`,
-            },
-          ],
-        };
+      case 'autoqa_pr_summary': {
+        const payload = PullRequestSummarySchema.parse(args);
+        const result = await buildPullRequestSummary(
+          payload.repoPath,
+          payload.changedFiles,
+          payload.baseRef,
+          payload.headRef,
+          payload.workingTree,
+          payload.staged,
+          payload.autoBase,
+          payload.sampleLimit
+        );
+        return jsonResult(result);
       }
 
-      case 'autoqa_generate_report': {
-        const { testIds, format } = GenerateReportSchema.parse(args);
-        
-        // Generate report
-        const report = await generateReport(testIds, format);
+      case 'autoqa_targeted_run_plan': {
+        const payload = TargetedRunPlanSchema.parse(args);
+        const result = await buildTargetedRunPlan(
+          payload.repoPath,
+          payload.changedFiles,
+          payload.baseRef,
+          payload.headRef,
+          payload.workingTree,
+          payload.staged,
+          payload.autoBase,
+          payload.sampleLimit
+        );
+        return jsonResult(result);
+      }
 
-        return {
-          content: [
-            {
-              type: 'text',
-              text: `📊 Report generated\n\nFormat: ${format}\nTests: ${testIds.length}\n\nReport URL: ${report.url}`,
-            },
-          ],
-        };
+      case 'autoqa_execute_run_plan': {
+        const payload = ExecuteRunPlanSchema.parse(args);
+        const result = await executeRunPlan(
+          payload.repoPath,
+          payload.changedFiles,
+          payload.baseRef,
+          payload.headRef,
+          payload.workingTree,
+          payload.staged,
+          payload.autoBase,
+          payload.maxTests,
+          payload.sampleLimit
+        );
+        return jsonResult(result);
+      }
+
+      case 'autoqa_verify_patch': {
+        const payload = VerifyPatchSchema.parse(args);
+        const result = await verifyPatch(
+          payload.repoPath,
+          payload.issue,
+          payload.changedFiles,
+          payload.baseRef,
+          payload.headRef,
+          payload.workingTree,
+          payload.staged,
+          payload.autoBase,
+          payload.maxTests,
+          payload.sampleLimit
+        );
+        return jsonResult(result);
+      }
+
+      case 'autoqa_ci_summary': {
+        const payload = CiSummarySchema.parse(args);
+        const result = await buildCiSummary(
+          payload.repoPath,
+          payload.changedFiles,
+          payload.baseRef,
+          payload.headRef,
+          payload.workingTree,
+          payload.staged,
+          payload.autoBase,
+          payload.format,
+          payload.sampleLimit
+        );
+        return jsonResult(result);
       }
 
       default:
         throw new Error(`Unknown tool: ${name}`);
     }
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
     return {
       content: [
         {
           type: 'text',
-          text: `❌ Error: ${errorMessage}`,
+          text: `Error: ${error instanceof Error ? error.message : String(error)}`,
         },
       ],
       isError: true,
@@ -318,316 +662,1985 @@ server.setRequestHandler(CallToolRequestSchema, async (request: any) => {
   }
 });
 
-// Import AutoQA packages
-import { AIService } from '@autoqa/ai-service';
-import { RootCauseAnalyzer, AITestGenerator } from '@autoqa/ai-intelligence';
-import { SelfHealingEngine } from '@autoqa/self-healing';
-import { VisualRegressionEngine } from '@autoqa/visual-regression';
-import { ReportGenerator } from '@autoqa/report-generator';
-import { chromium, Browser, Page } from 'playwright';
-
-// Initialize AutoQA services
-const aiService = new AIService({
-  provider: 'openai',
-  apiKey: process.env.OPENAI_API_KEY || '',
-  model: 'gpt-4',
-});
-
-const rootCauseAnalyzer = new RootCauseAnalyzer({
-  aiProvider: {
-    generateText: async (prompt: string) => {
-      return await aiService.generateText(prompt);
-    },
-  },
-});
-
-const aiTestGenerator = new AITestGenerator({
-  aiProvider: {
-    generateText: async (prompt: string) => {
-      return await aiService.generateText(prompt);
-    },
-  },
-});
-
-const selfHealingEngine = new SelfHealingEngine({
-  strategies: ['css', 'xpath', 'text', 'visual'],
-  enableLogging: true,
-});
-
-const visualRegressionEngine = new VisualRegressionEngine({
-  threshold: 0.1,
-  storageProvider: {
-    saveBaseline: async (testId: string, screenshot: Buffer) => {
-      // Store in memory for now (in production, use S3/MinIO)
-      baselineStore.set(testId, screenshot);
-    },
-    getBaseline: async (testId: string) => {
-      return baselineStore.get(testId) || null;
-    },
-  },
-});
-
-const reportGenerator = new ReportGenerator({
-  templatePath: './templates',
-  outputPath: './reports',
-});
-
-// In-memory stores (in production, use Redis/Database)
-const testStore = new Map<string, any>();
-const baselineStore = new Map<string, Buffer>();
-let browser: Browser | null = null;
-
-// Helper Functions (Real AutoQA integration)
-async function generateTestCode(description: string, url?: string, framework: string = 'playwright'): Promise<string> {
-  try {
-    // Use AI Test Generator to create test code
-    const testCode = await aiTestGenerator.generateFromNaturalLanguage({
-      description,
-      url: url || 'https://example.com',
-      framework: framework as 'playwright' | 'cypress',
-    });
-
-    return testCode.code;
-  } catch (error) {
-    // Fallback to template-based generation
-    return `import { test, expect } from '@playwright/test';
-
-test('${description}', async ({ page }) => {
-  await page.goto('${url || 'https://example.com'}');
-  // AI-generated test steps based on: ${description}
-  await page.waitForLoadState('networkidle');
-  
-  // TODO: Add specific test steps and assertions
-  // This is a template - customize based on your requirements
-});`;
-  }
+function textResult(text: string) {
+  return {
+    content: [
+      {
+        type: 'text',
+        text,
+      },
+    ],
+  };
 }
 
-async function executeTest(testId: string, headless: boolean) {
+function jsonResult(payload: unknown) {
+  return textResult(`${JSON.stringify(payload, null, 2)}\n`);
+}
+
+async function scanRepo(repoPath: string, sampleLimit: number): Promise<RepoScanResult> {
+  const absoluteRepoPath = await resolveDirectoryPath(repoPath);
+  const settings = await loadRepoSettings(absoluteRepoPath);
+  const files = await listRepositoryFiles(absoluteRepoPath, settings);
+
+  const packageManager = detectPackageManager(files);
+  const packageJson = await readPackageJsonIfPresent(absoluteRepoPath, files);
+  const frameworks = detectFrameworks(files, packageJson);
+  const playwrightConfigFiles = files.filter((file) =>
+    /(^|[/\\])playwright\.config\.(ts|js|mjs|cjs)$/i.test(file)
+  );
+  const testFiles = files.filter((file) => isConfiguredTestFile(file, settings));
+  const sourceFiles = files.filter((file) => isConfiguredSourceFile(file, settings));
+
+  const notes: string[] = [];
+  if (!playwrightConfigFiles.length) {
+    notes.push('No Playwright config file found.');
+  }
+  if (!testFiles.length) {
+    notes.push('No test files found. Create a seed spec before relying on patch workflows.');
+  }
+  if (!frameworks.length) {
+    notes.push('No supported test framework detected from package.json or file layout.');
+  }
+  if (settings.ignorePatterns.length > 0) {
+    notes.push(`Loaded ${settings.ignorePatterns.length} ignore pattern(s) from repo settings.`);
+  }
+
+  const recommendedTargets = [
+    ...testFiles,
+    ...playwrightConfigFiles,
+    ...(files.includes('package.json') ? ['package.json'] : []),
+  ].slice(0, sampleLimit);
+
+  return {
+    repoPath: absoluteRepoPath,
+    packageManager,
+    frameworks,
+    playwrightConfigFiles: playwrightConfigFiles.slice(0, sampleLimit),
+    testFileCount: testFiles.length,
+    sourceFileCount: sourceFiles.length,
+    sampleTestFiles: testFiles.slice(0, sampleLimit),
+    sampleSourceFiles: sourceFiles.slice(0, sampleLimit),
+    recommendedTargets,
+    notes,
+  };
+}
+
+async function patchFile(input: z.infer<typeof PatchFileSchema>): Promise<PatchFileResult> {
+  const repoPath = await resolveDirectoryPath(input.repoPath);
+  const absoluteFilePath = resolveRepoRelativePath(repoPath, input.filePath);
+
+  let current = '';
+  let existed = false;
+
   try {
-    // Initialize browser if not already running
-    if (!browser) {
-      browser = await chromium.launch({ headless });
+    current = await readFile(absoluteFilePath, 'utf8');
+    existed = true;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+      throw error;
+    }
+  }
+
+  let next = current;
+  let matchCount = 0;
+
+  if (input.action === 'replace') {
+    if (!input.findText) {
+      throw new Error('findText is required for replace patches');
     }
 
-    const context = await browser.newContext();
-    const page = await context.newPage();
+    matchCount = countOccurrences(current, input.findText);
+    if (matchCount !== input.expectedMatches) {
+      throw new Error(
+        `Expected ${input.expectedMatches} matches for replace patch, found ${matchCount}`
+      );
+    }
 
-    const startTime = Date.now();
-    let status: 'passed' | 'failed' = 'passed';
-    let error: string | undefined;
-    let screenshot: string | undefined;
+    next = current.split(input.findText).join(input.content);
+  } else {
+    if (!existed) {
+      await mkdir(dirname(absoluteFilePath), { recursive: true });
+      next = input.content;
+    } else {
+      const separator = current.length === 0 || current.endsWith('\n') ? '' : '\n';
+      next = `${current}${separator}${input.content}`;
+    }
+  }
 
+  if (!input.dryRun) {
+    await mkdir(dirname(absoluteFilePath), { recursive: true });
+    await writeFile(absoluteFilePath, next, 'utf8');
+  }
+
+  const diff = buildUnifiedDiff(input.filePath, current, next);
+
+  return {
+    repoPath,
+    filePath: input.filePath,
+    action: input.action,
+    dryRun: input.dryRun,
+    changed: current !== next,
+    matchCount,
+    bytesDelta: Buffer.byteLength(next, 'utf8') - Buffer.byteLength(current, 'utf8'),
+    preview: buildPreview(next),
+    diff,
+    rollback: {
+      mode: 'replace_entire',
+      filePath: input.filePath,
+      previousContent: current,
+      nextContent: next,
+    },
+  };
+}
+
+async function suggestPatch(
+  repoPath: string,
+  issue: string,
+  sampleLimit: number,
+  changedFiles?: string[],
+  baseRef?: string,
+  headRef?: string,
+  workingTree?: boolean,
+  staged?: boolean,
+  autoBase?: boolean,
+  apply?: boolean
+): Promise<SuggestedPatch> {
+  const scan = await scanRepo(repoPath, sampleLimit);
+  const issueLower = issue.toLowerCase();
+  const resolvedChanges =
+    changedFiles?.length || baseRef || workingTree || autoBase
+      ? await resolveChangedFiles(
+          scan.repoPath,
+          changedFiles,
+          baseRef,
+          headRef,
+          workingTree,
+          staged,
+          autoBase
+        )
+      : null;
+  const diffSignals = resolvedChanges
+    ? await loadDiffSignals(
+        scan.repoPath,
+        resolvedChanges.changedFiles,
+        resolvedChanges.diffSource.mode === 'git' ? resolvedChanges.diffSource.baseRef : undefined,
+        resolvedChanges.diffSource.mode === 'git' ? resolvedChanges.diffSource.headRef : undefined,
+        resolvedChanges.diffSource.mode === 'working_tree',
+        resolvedChanges.diffSource.mode === 'working_tree' ? resolvedChanges.diffSource.staged : false,
+        resolvedChanges.untrackedFiles
+      )
+    : [];
+  const preferredTargets = scan.sampleTestFiles.length
+    ? scan.sampleTestFiles
+    : scan.recommendedTargets.filter((item) => TEST_FILE_PATTERN.test(item));
+
+  if (!preferredTargets.length) {
+    throw new Error('No candidate test file found for patch suggestion');
+  }
+
+  for (const relativeTarget of preferredTargets) {
+    const absoluteTarget = resolveRepoRelativePath(scan.repoPath, relativeTarget);
+    const content = await readFile(absoluteTarget, 'utf8');
+    const proposal =
+      buildSemanticPatchProposal(content, diffSignals, issueLower) ??
+      buildPatchProposal(content, issueLower);
+
+    if (!proposal) {
+      continue;
+    }
+
+    const confidenceLevel = confidenceLevelFromValue(proposal.confidence);
+    const shouldApply = Boolean(apply) && confidenceLevel === 'high';
+    const gatedReason =
+      apply && !shouldApply
+        ? `${proposal.reason} Apply request downgraded to dry-run because confidence is ${confidenceLevel}.`
+        : proposal.reason;
+
+    const patchPreview = await patchFile({
+      repoPath: scan.repoPath,
+      filePath: relativeTarget,
+      action: 'replace',
+      findText: proposal.findText,
+      content: proposal.content,
+      expectedMatches: 1,
+      dryRun: !shouldApply,
+    });
+
+    return {
+      repoPath: scan.repoPath,
+      targetFile: relativeTarget,
+      reason: gatedReason,
+      confidence: proposal.confidence,
+      confidenceLevel,
+      applied: shouldApply,
+      patch: {
+        action: 'replace',
+        findText: proposal.findText,
+        content: proposal.content,
+        expectedMatches: 1,
+        dryRun: !shouldApply,
+      },
+      diff: patchPreview.diff,
+      applyResult: shouldApply ? patchPreview : undefined,
+    };
+  }
+
+  throw new Error('Could not derive a patch suggestion from the current repository snapshot');
+}
+
+async function analyzeImpact(
+  repoPath: string,
+  changedFiles: string[] | undefined,
+  baseRef: string | undefined,
+  headRef: string | undefined,
+  workingTree: boolean | undefined,
+  staged: boolean | undefined,
+  autoBase: boolean | undefined,
+  sampleLimit: number
+): Promise<ImpactAnalysisResult> {
+  const resolvedChanges = await resolveChangedFiles(
+    repoPath,
+    changedFiles,
+    baseRef,
+    headRef,
+    workingTree,
+    staged,
+    autoBase
+  );
+  const scan = await scanRepo(repoPath, Math.max(sampleLimit, resolvedChanges.changedFiles.length));
+  const normalizedChangedFiles = resolvedChanges.changedFiles;
+  const riskySourceFiles = normalizedChangedFiles.filter((file) => !TEST_FILE_PATTERN.test(file));
+  const diffSignals = await loadDiffSignals(
+    scan.repoPath,
+    normalizedChangedFiles,
+    resolvedChanges.diffSource.mode === 'git' ? resolvedChanges.diffSource.baseRef : undefined,
+    resolvedChanges.diffSource.mode === 'git' ? resolvedChanges.diffSource.headRef : undefined,
+    resolvedChanges.diffSource.mode === 'working_tree',
+    resolvedChanges.diffSource.mode === 'working_tree' ? resolvedChanges.diffSource.staged : false,
+    resolvedChanges.untrackedFiles
+  );
+
+  const affectedTests = scan.sampleTestFiles
+    .map(async (testFile) => {
+      const absoluteTestPath = resolveRepoRelativePath(scan.repoPath, testFile);
+      const testContent = await readFile(absoluteTestPath, 'utf8').catch(() => '');
+      const scoreDetails = scoreTestAgainstChanges(
+        testFile,
+        normalizedChangedFiles,
+        diffSignals,
+        testContent
+      );
+      return {
+        file: testFile,
+        score: scoreDetails.score,
+        confidenceLevel: confidenceLevelFromScore(scoreDetails.score),
+        reasons: scoreDetails.reasons,
+      };
+    })
+    .reduce(async (promise, entryPromise) => {
+      const items = await promise;
+      items.push(await entryPromise);
+      return items;
+    }, Promise.resolve([] as Array<{ file: string; score: number; confidenceLevel: ConfidenceLevel; reasons: string[] }>));
+
+  const resolvedAffectedTests = (await affectedTests)
+    .filter((entry) => entry.score > 0)
+    .sort((left, right) => right.score - left.score || left.file.localeCompare(right.file))
+    .slice(0, sampleLimit);
+
+  const patchInputs = derivePatchIssuesFromChanges(normalizedChangedFiles, diffSignals).slice(
+    0,
+    sampleLimit
+  );
+  const suggestedPatches: SuggestedPatch[] = [];
+
+  for (const issue of patchInputs) {
     try {
-      // Get test code from store
-      const test = testStore.get(testId);
-      if (!test) {
-        throw new Error(`Test ${testId} not found`);
+      const suggestion = await suggestPatch(
+        scan.repoPath,
+        issue,
+        sampleLimit,
+        normalizedChangedFiles,
+        resolvedChanges.diffSource.mode === 'git' ? resolvedChanges.diffSource.baseRef : undefined,
+        resolvedChanges.diffSource.mode === 'git' ? resolvedChanges.diffSource.headRef : undefined,
+        resolvedChanges.diffSource.mode === 'working_tree',
+        resolvedChanges.diffSource.mode === 'working_tree' ? resolvedChanges.diffSource.staged : false,
+        Boolean(resolvedChanges.diffSource.autoBase)
+      );
+      if (!suggestedPatches.some((item) => item.targetFile === suggestion.targetFile)) {
+        suggestedPatches.push(suggestion);
       }
-
-      // Execute test code (simplified - in production, use proper test runner)
-      await page.goto(test.url || 'https://example.com');
-      await page.waitForLoadState('networkidle');
-
-      // Capture screenshot
-      const screenshotBuffer = await page.screenshot();
-      screenshot = `data:image/png;base64,${screenshotBuffer.toString('base64')}`;
-
-    } catch (err) {
-      status = 'failed';
-      error = err instanceof Error ? err.message : String(err);
-      
-      // Capture failure screenshot
-      try {
-        const screenshotBuffer = await page.screenshot();
-        screenshot = `data:image/png;base64,${screenshotBuffer.toString('base64')}`;
-      } catch {}
-    } finally {
-      await context.close();
+    } catch {
+      // Ignore patch derivation misses; impact analysis should still return test targeting.
     }
-
-    const duration = Date.now() - startTime;
-
-    return {
-      status,
-      duration,
-      screenshot,
-      error,
-    };
-  } catch (error) {
-    return {
-      status: 'failed' as const,
-      duration: 0,
-      error: error instanceof Error ? error.message : String(error),
-    };
   }
+
+  const summary =
+    resolvedAffectedTests.length > 0
+      ? `Detected ${resolvedAffectedTests.length} likely affected test target(s) from ${normalizedChangedFiles.length} changed file(s).`
+      : `No direct affected tests were inferred from ${normalizedChangedFiles.length} changed file(s); review manually.`;
+  const overallConfidence =
+    resolvedAffectedTests.length > 0
+      ? confidenceLevelFromScore(resolvedAffectedTests[0].score)
+      : suggestedPatches[0]?.confidenceLevel ?? 'low';
+
+  return {
+    repoPath: scan.repoPath,
+    changedFiles: normalizedChangedFiles,
+    diffSource: resolvedChanges.diffSource,
+    riskySourceFiles,
+    affectedTests: resolvedAffectedTests,
+    suggestedRunTargets: resolvedAffectedTests.map((entry) => entry.file),
+    suggestedPatches,
+    confidenceLevel: overallConfidence,
+    summary,
+  };
 }
 
-async function analyzeFailure(testId: string, errorMessage: string) {
-  try {
-    // Use Root Cause Analyzer for AI-powered analysis
-    const analysis = await rootCauseAnalyzer.analyzeFailure({
-      testId,
-      errorMessage,
-      stackTrace: errorMessage,
-      screenshot: null,
-      domSnapshot: null,
-      networkLogs: [],
-      consoleErrors: [errorMessage],
-      timestamp: new Date(),
-    });
+async function buildPullRequestSummary(
+  repoPath: string,
+  changedFiles: string[] | undefined,
+  baseRef: string | undefined,
+  headRef: string | undefined,
+  workingTree: boolean | undefined,
+  staged: boolean | undefined,
+  autoBase: boolean | undefined,
+  sampleLimit: number
+): Promise<PullRequestSummary> {
+  const analysis = await analyzeImpact(
+    repoPath,
+    changedFiles,
+    baseRef,
+    headRef,
+    workingTree,
+    staged,
+    autoBase,
+    sampleLimit
+  );
+  const highestRisk = analysis.affectedTests[0];
+  const title =
+    analysis.affectedTests.length > 0
+      ? `QA impact: ${analysis.affectedTests.length} likely affected test target(s)`
+      : 'QA impact: manual review recommended';
 
-    return {
-      explanation: analysis.rootCause,
-      suggestions: analysis.suggestedFixes.map((fix: any) => fix.description),
-      confidence: analysis.confidence,
-      category: analysis.category,
-    };
-  } catch (error) {
-    // Fallback to basic analysis
-    return {
-      explanation: `Test failed with error: ${errorMessage}`,
-      suggestions: [
-        'Check if the element selector is correct',
-        'Verify the page loaded completely',
-        'Enable self-healing to automatically adapt to changes',
-      ],
-      confidence: 0.5,
-      category: 'unknown',
-    };
+  const bodyLines = [
+    `Changed files: ${analysis.changedFiles.join(', ')}`,
+    `Confidence: ${analysis.confidenceLevel}`,
+    '',
+    analysis.summary,
+    '',
+    'Affected tests:',
+    ...(analysis.affectedTests.length > 0
+      ? analysis.affectedTests.map(
+          (entry) => `- ${entry.file} (score ${entry.score}): ${entry.reasons.join('; ')}`
+        )
+      : ['- No direct test mapping found.']),
+    '',
+    'Suggested run targets:',
+    ...(analysis.suggestedRunTargets.length > 0
+      ? analysis.suggestedRunTargets.map((target) => `- ${target}`)
+      : ['- Manual selection required.']),
+    '',
+    'Suggested patch targets:',
+    ...(analysis.suggestedPatches.length > 0
+      ? analysis.suggestedPatches.map(
+          (patch) =>
+            `- ${patch.targetFile} (${Math.round(patch.confidence * 100)}%): ${patch.reason}`
+        )
+      : ['- No automatic patch suggestion.']),
+  ];
+
+  if (highestRisk) {
+    bodyLines.unshift(`Highest-risk target: ${highestRisk.file}`);
+    bodyLines.unshift('');
   }
+
+  return {
+    repoPath: analysis.repoPath,
+    title,
+    body: bodyLines.join('\n'),
+    affectedTests: analysis.affectedTests.map((entry) => entry.file),
+    suggestedRunTargets: analysis.suggestedRunTargets,
+    changedFiles: analysis.changedFiles,
+  };
 }
 
-async function fixTest(testId: string, strategy: string) {
-  try {
-    const test = testStore.get(testId);
-    if (!test) {
-      throw new Error(`Test ${testId} not found`);
-    }
+async function buildTargetedRunPlan(
+  repoPath: string,
+  changedFiles: string[] | undefined,
+  baseRef: string | undefined,
+  headRef: string | undefined,
+  workingTree: boolean | undefined,
+  staged: boolean | undefined,
+  autoBase: boolean | undefined,
+  sampleLimit: number
+): Promise<TargetedRunPlan> {
+  const analysis = await analyzeImpact(
+    repoPath,
+    changedFiles,
+    baseRef,
+    headRef,
+    workingTree,
+    staged,
+    autoBase,
+    sampleLimit
+  );
+  const primary = analysis.affectedTests.filter((entry) => entry.score >= 5).map((entry) => entry.file);
+  const secondary = analysis.affectedTests
+    .filter((entry) => entry.score > 0 && entry.score < 5)
+    .map((entry) => entry.file);
 
-    // Use Self-Healing Engine to fix the test
-    const healingResult = await selfHealingEngine.heal({
-      originalSelector: test.selector || 'button',
-      page: null as any, // In production, pass actual page object
-      context: {
-        testId,
-        attemptNumber: 1,
+  const warnings: string[] = [];
+  if (analysis.suggestedPatches.length === 0) {
+    warnings.push('No automatic patch suggestion was derived from the current diff.');
+  }
+  if (analysis.affectedTests.length === 0) {
+    warnings.push('No affected tests were inferred; manual QA review is recommended.');
+  }
+
+  return {
+    repoPath: analysis.repoPath,
+    changedFiles: analysis.changedFiles,
+    diffSource: analysis.diffSource,
+    runGroups: [
+      {
+        label: 'highest_priority',
+        tests: primary,
+        rationale: 'Run these tests first because they have the strongest path or semantic overlap with the diff.',
+      },
+      {
+        label: 'secondary',
+        tests: secondary,
+        rationale: 'Run these next if the highest-priority group fails or if the change is broader than expected.',
+      },
+      {
+        label: 'manual_review',
+        tests: analysis.affectedTests.length === 0 ? analysis.changedFiles : [],
+        rationale: 'No deterministic test mapping was found for these changes.',
+      },
+    ],
+    confidenceLevel: analysis.confidenceLevel,
+    warnings,
+  };
+}
+
+async function buildCiSummary(
+  repoPath: string,
+  changedFiles: string[] | undefined,
+  baseRef: string | undefined,
+  headRef: string | undefined,
+  workingTree: boolean | undefined,
+  staged: boolean | undefined,
+  autoBase: boolean | undefined,
+  format: 'markdown' | 'github' | 'plain',
+  sampleLimit: number
+): Promise<CiSummary> {
+  const analysis = await analyzeImpact(
+    repoPath,
+    changedFiles,
+    baseRef,
+    headRef,
+    workingTree,
+    staged,
+    autoBase,
+    sampleLimit
+  );
+  const runPlan = await buildTargetedRunPlan(
+    repoPath,
+    changedFiles,
+    baseRef,
+    headRef,
+    workingTree,
+    staged,
+    autoBase,
+    sampleLimit
+  );
+
+  const highestRisk = analysis.affectedTests[0]?.file ?? 'manual-review';
+  const highestPriority =
+    runPlan.runGroups.find((group) => group.label === 'highest_priority')?.tests ?? [];
+  const autoFix = analysis.suggestedPatches[0];
+  const header =
+    analysis.diffSource.mode === 'working_tree'
+      ? `Working tree QA summary (${analysis.diffSource.staged ? 'staged' : 'unstaged'})`
+      : 'QA summary';
+
+  let lines: string[];
+  if (format === 'plain') {
+    lines = [
+      header,
+      `Changed files: ${analysis.changedFiles.join(', ')}`,
+      `Confidence: ${analysis.confidenceLevel}`,
+      `Highest-risk test: ${highestRisk}`,
+      `Run first: ${highestPriority.join(', ') || 'manual review'}`,
+      `Auto-fix: ${autoFix ? `${autoFix.targetFile} - ${autoFix.reason}` : 'none'}`,
+    ];
+  } else if (format === 'github') {
+    lines = [
+      `### AutoQA CI Summary`,
+      '',
+      `**Mode:** ${header}`,
+      `**Confidence:** ${analysis.confidenceLevel}`,
+      `**Highest-risk test:** ${highestRisk}`,
+      `**Run first:** ${highestPriority.join(', ') || 'manual review'}`,
+      `**Auto-fix:** ${autoFix ? `${autoFix.targetFile} (${Math.round(autoFix.confidence * 100)}%)` : 'none'}`,
+      '',
+      '<details>',
+      '<summary>Changed files</summary>',
+      '',
+      ...analysis.changedFiles.map((file) => `- \`${file}\``),
+      '',
+      '</details>',
+      '',
+      '<details>',
+      '<summary>Suggested run targets</summary>',
+      '',
+      ...(analysis.suggestedRunTargets.length
+        ? analysis.suggestedRunTargets.map((target) => `- \`${target}\``)
+        : ['- manual review']),
+      '',
+      '</details>',
+      '',
+      '<details>',
+      '<summary>Notes</summary>',
+      '',
+      ...(runPlan.warnings.length
+        ? runPlan.warnings.map((warning) => `- ${warning}`)
+        : ['- No blocking warnings.']),
+      '',
+      '</details>',
+    ];
+  } else {
+    lines = [
+      `## ${header}`,
+      '',
+      `- Changed files: ${analysis.changedFiles.join(', ')}`,
+      `- Confidence: ${analysis.confidenceLevel}`,
+      `- Highest-risk test: ${highestRisk}`,
+      `- Run first: ${highestPriority.join(', ') || 'manual review'}`,
+      `- Auto-fix: ${autoFix ? `${autoFix.targetFile} (${Math.round(autoFix.confidence * 100)}%)` : 'none'}`,
+      '',
+      '### Suggested run targets',
+      ...(analysis.suggestedRunTargets.length
+        ? analysis.suggestedRunTargets.map((target) => `- ${target}`)
+        : ['- manual review']),
+      '',
+      '### Notes',
+      ...(runPlan.warnings.length
+        ? runPlan.warnings.map((warning) => `- ${warning}`)
+        : ['- No blocking warnings.']),
+    ];
+  }
+
+  return {
+    repoPath: analysis.repoPath,
+    format,
+    diffSource: analysis.diffSource,
+    summary: lines.join('\n'),
+    affectedTests: analysis.affectedTests.map((entry) => entry.file),
+    suggestedRunTargets: analysis.suggestedRunTargets,
+    changedFiles: analysis.changedFiles,
+  };
+}
+
+async function executeRunPlan(
+  repoPath: string,
+  changedFiles: string[] | undefined,
+  baseRef: string | undefined,
+  headRef: string | undefined,
+  workingTree: boolean | undefined,
+  staged: boolean | undefined,
+  autoBase: boolean | undefined,
+  maxTests: number,
+  sampleLimit: number
+): Promise<RunPlanExecution> {
+  const runPlan = await buildTargetedRunPlan(
+    repoPath,
+    changedFiles,
+    baseRef,
+    headRef,
+    workingTree,
+    staged,
+    autoBase,
+    sampleLimit
+  );
+  const highestPriority =
+    runPlan.runGroups.find((group) => group.label === 'highest_priority')?.tests ?? [];
+  const secondary = runPlan.runGroups.find((group) => group.label === 'secondary')?.tests ?? [];
+  const selectedTests = (highestPriority.length ? highestPriority : secondary).slice(0, maxTests);
+
+  return executePlaywrightTests(repoPath, selectedTests);
+}
+
+async function executePlaywrightTests(
+  repoPath: string,
+  selectedTests: string[]
+): Promise<RunPlanExecution> {
+  if (!selectedTests.length) {
+    return {
+      repoPath: resolve(repoPath),
+      command: [],
+      tests: [],
+      executed: false,
+      exitCode: 0,
+      status: 'skipped',
+      stdout: '',
+      stderr: 'No tests selected by targeted run plan.',
+    };
+  }
+
+  const cliPath = resolvePlaywrightCliPath(repoPath);
+  const command = [
+    process.execPath,
+    cliPath,
+    'test',
+    '--workers=1',
+    '--reporter=line',
+    ...selectedTests,
+  ];
+
+  try {
+    const { stdout, stderr } = await execFileAsync(process.execPath, command.slice(1), {
+      cwd: resolve(repoPath),
+      env: {
+        ...process.env,
+        CI: process.env.CI ?? '1',
       },
     });
 
-    if (healingResult.success && healingResult.newSelector) {
+    return {
+      repoPath: resolve(repoPath),
+      command,
+      tests: selectedTests,
+      executed: true,
+      exitCode: 0,
+      status: 'passed',
+      stdout,
+      stderr,
+    };
+  } catch (error) {
+    const executionError = error as NodeJS.ErrnoException & {
+      stdout?: string;
+      stderr?: string;
+      code?: number | string;
+    };
+
+    return {
+      repoPath: resolve(repoPath),
+      command,
+      tests: selectedTests,
+      executed: true,
+      exitCode: typeof executionError.code === 'number' ? executionError.code : 1,
+      status: 'failed',
+      stdout: executionError.stdout ?? '',
+      stderr: executionError.stderr ?? executionError.message,
+    };
+  }
+}
+
+async function verifyPatch(
+  repoPath: string,
+  issue: string,
+  changedFiles: string[] | undefined,
+  baseRef: string | undefined,
+  headRef: string | undefined,
+  workingTree: boolean | undefined,
+  staged: boolean | undefined,
+  autoBase: boolean | undefined,
+  maxTests: number,
+  sampleLimit: number
+): Promise<PatchVerification> {
+  const patch = await suggestPatch(
+    repoPath,
+    issue,
+    sampleLimit,
+    changedFiles,
+    baseRef,
+    headRef,
+    workingTree,
+    staged,
+    autoBase,
+    true
+  );
+
+  const runPlan = await buildTargetedRunPlan(
+    repoPath,
+    changedFiles,
+    baseRef,
+    headRef,
+    workingTree,
+    staged,
+    autoBase,
+    sampleLimit
+  );
+
+  const execution = patch.applied
+    ? await executePlaywrightTests(repoPath, [patch.targetFile].slice(0, maxTests))
+    : {
+        repoPath: resolve(repoPath),
+        command: [],
+        tests: [],
+        executed: false,
+        exitCode: 0,
+        status: 'skipped' as const,
+        stdout: '',
+        stderr: 'Patch was not applied because confidence was below the apply threshold.',
+      };
+
+  const verificationStatus =
+    patch.applied && execution.status === 'passed'
+      ? 'passed'
+      : patch.applied && execution.status === 'failed'
+        ? 'failed'
+        : 'skipped';
+
+  const report = await writeVerificationReport({
+    repoPath: resolve(repoPath),
+    patch,
+    runPlan,
+    execution,
+    status: verificationStatus,
+  });
+
+  return {
+    repoPath: resolve(repoPath),
+    patch,
+    runPlan,
+    execution,
+    reportPath: report.path,
+    status: verificationStatus,
+  };
+}
+
+async function writeVerificationReport(
+  payload: Omit<PatchVerification, 'reportPath'>
+) {
+  const reportsDir = join(process.cwd(), 'reports');
+  await mkdir(reportsDir, { recursive: true });
+
+  const path = join(reportsDir, `autoqa-verify-${Date.now()}.md`);
+  const body = [
+    '# AutoQA Patch Verification',
+    '',
+    `Repo: ${payload.repoPath}`,
+    `Status: ${payload.status}`,
+    `Patch target: ${payload.patch.targetFile}`,
+    `Patch confidence: ${payload.patch.confidenceLevel}`,
+    `Patch applied: ${payload.patch.applied}`,
+    `Executed tests: ${payload.execution.tests.join(', ') || 'none'}`,
+    `Execution status: ${payload.execution.status}`,
+    '',
+    '## Patch reason',
+    '',
+    payload.patch.reason,
+    '',
+    '## Run plan',
+    '',
+    ...payload.runPlan.runGroups.map(
+      (group) => `- ${group.label}: ${group.tests.join(', ') || 'none'}`
+    ),
+    '',
+    '## Command',
+    '',
+    payload.execution.command.length ? `\`${payload.execution.command.join(' ')}\`` : 'Not executed',
+    '',
+    '## stderr',
+    '',
+    '```text',
+    payload.execution.stderr || '(empty)',
+    '```',
+    '',
+    '## stdout',
+    '',
+    '```text',
+    payload.execution.stdout || '(empty)',
+    '```',
+    '',
+  ].join('\n');
+
+  await writeFile(path, body, 'utf8');
+  return { path };
+}
+
+async function resolveDirectoryPath(inputPath: string) {
+  const absolutePath = resolve(inputPath);
+  const metadata = await stat(absolutePath).catch(() => null);
+
+  if (!metadata?.isDirectory()) {
+    throw new Error(`Directory not found: ${absolutePath}`);
+  }
+
+  return absolutePath;
+}
+
+function resolveRepoRelativePath(repoPath: string, filePath: string) {
+  const absolutePath = resolve(repoPath, filePath);
+  const normalizedRepo = normalizePath(repoPath);
+  const normalizedAbsolutePath = normalizePath(absolutePath);
+  const repoPrefix = normalizedRepo.endsWith('/') ? normalizedRepo : `${normalizedRepo}/`;
+
+  if (normalizedAbsolutePath !== normalizedRepo && !normalizedAbsolutePath.startsWith(repoPrefix)) {
+    throw new Error(`Refusing to access file outside repository: ${filePath}`);
+  }
+
+  return absolutePath;
+}
+
+function normalizePath(value: string) {
+  return value.replace(/\\/g, '/').toLowerCase();
+}
+
+async function listRepositoryFiles(repoPath: string, settings: RepoSettings) {
+  const cacheKey = `${repoPath}:${settings.ignorePatterns.join('|')}`;
+  const cached = getCachedValue(repoFileCache, cacheKey);
+  if (cached) {
+    return cached;
+  }
+
+  const stack = [repoPath];
+  const files: string[] = [];
+
+  while (stack.length > 0) {
+    const currentPath = stack.pop();
+    if (!currentPath) {
+      continue;
+    }
+
+    const entries = await readdir(currentPath, { withFileTypes: true });
+    for (const entry of entries) {
+      if (entry.isDirectory()) {
+        if (!IGNORED_DIRECTORIES.has(entry.name)) {
+          stack.push(join(currentPath, entry.name));
+        }
+        continue;
+      }
+
+      if (!entry.isFile()) {
+        continue;
+      }
+
+      const absoluteEntryPath = join(currentPath, entry.name);
+      const relativePath = absoluteEntryPath.slice(repoPath.length + 1).split(sep).join('/');
+      if (!shouldIgnorePath(relativePath, settings)) {
+        files.push(relativePath);
+      }
+    }
+  }
+
+  const sortedFiles = files.sort((left, right) => left.localeCompare(right));
+  setCachedValue(repoFileCache, cacheKey, sortedFiles);
+  return sortedFiles;
+}
+
+async function readPackageJsonIfPresent(repoPath: string, files: string[]) {
+  if (!files.includes('package.json')) {
+    return null;
+  }
+
+  try {
+    const packageJson = await readFile(join(repoPath, 'package.json'), 'utf8');
+    return JSON.parse(packageJson) as {
+      dependencies?: Record<string, string>;
+      devDependencies?: Record<string, string>;
+    };
+  } catch {
+    return null;
+  }
+}
+
+function detectPackageManager(files: string[]): RepoScanResult['packageManager'] {
+  if (files.includes('pnpm-lock.yaml')) {
+    return 'pnpm';
+  }
+  if (files.includes('package-lock.json')) {
+    return 'npm';
+  }
+  if (files.includes('yarn.lock')) {
+    return 'yarn';
+  }
+  return 'unknown';
+}
+
+function detectFrameworks(
+  files: string[],
+  packageJson: {
+    dependencies?: Record<string, string>;
+    devDependencies?: Record<string, string>;
+  } | null
+) {
+  const frameworks = new Set<string>();
+  const dependencies = {
+    ...(packageJson?.dependencies ?? {}),
+    ...(packageJson?.devDependencies ?? {}),
+  };
+
+  if (dependencies.playwright || dependencies['@playwright/test']) {
+    frameworks.add('playwright');
+  }
+  if (dependencies.cypress) {
+    frameworks.add('cypress');
+  }
+  if (dependencies.vitest) {
+    frameworks.add('vitest');
+  }
+  if (dependencies.jest) {
+    frameworks.add('jest');
+  }
+
+  if (files.some((file) => /(^|[/\\])playwright\.config\.(ts|js|mjs|cjs)$/i.test(file))) {
+    frameworks.add('playwright');
+  }
+  if (files.some((file) => /cypress/i.test(file))) {
+    frameworks.add('cypress');
+  }
+
+  return Array.from(frameworks).sort((left, right) => left.localeCompare(right));
+}
+
+function buildPatchProposal(content: string, issueLower: string) {
+  if (
+    (issueLower.includes('locator') ||
+      issueLower.includes('selector') ||
+      issueLower.includes('role') ||
+      issueLower.includes('button')) &&
+    content.includes("page.locator('.login-button')")
+  ) {
+    return {
+      reason: 'Found a brittle CSS locator and proposed a role-based Playwright locator.',
+      confidence: 0.8,
+      findText: "page.locator('.login-button')",
+      content: "page.getByRole('button', { name: 'Login' })",
+    };
+  }
+
+  if (
+    issueLower.includes('testid') &&
+    content.includes("page.locator('.login-button')")
+  ) {
+    return {
+      reason: 'Translated a brittle CSS locator into a data-testid selector based on the issue text.',
+      confidence: 0.72,
+      findText: "page.locator('.login-button')",
+      content: "page.getByTestId('login-button')",
+    };
+  }
+
+  if (
+    issueLower.includes('networkidle') &&
+    content.includes("await page.goto('/');")
+  ) {
+    return {
+      reason: 'Added an explicit load-state wait after navigation for a timing-related issue.',
+      confidence: 0.68,
+      findText: "await page.goto('/');",
+      content: "await page.goto('/');\n  await page.waitForLoadState('networkidle');",
+    };
+  }
+
+  return null;
+}
+
+function scoreTestAgainstChanges(
+  testFile: string,
+  changedFiles: string[],
+  diffSignals: DiffSignal[],
+  testContent: string
+) {
+  const reasons: string[] = [];
+  let score = 0;
+  const testTokens = tokenizePath(testFile);
+
+  for (const changedFile of changedFiles) {
+    const changedTokens = tokenizePath(changedFile);
+    const sharedTokens = intersectTokens(testTokens, changedTokens);
+
+    if (sharedTokens.length > 0) {
+      score += Math.min(sharedTokens.length * 2, 6);
+      reasons.push(`Shared path tokens with ${changedFile}: ${sharedTokens.join(', ')}`);
+    }
+
+    if (sameBasenameFamily(testFile, changedFile)) {
+      score += 4;
+      reasons.push(`Filename family matches changed file ${changedFile}`);
+    }
+
+    if (changedFile.startsWith('src/') && testFile.startsWith('tests/')) {
+      score += 1;
+      reasons.push(`Source change ${changedFile} may require test maintenance`);
+    }
+  }
+
+  const testSignalBoost = scoreTestAgainstDiffSignals(testFile, diffSignals, testContent);
+  score += testSignalBoost.score;
+  reasons.push(...testSignalBoost.reasons);
+
+  return {
+    score,
+    reasons: dedupeStrings(reasons),
+  };
+}
+
+function scoreTestAgainstDiffSignals(testFile: string, diffSignals: DiffSignal[], testContent: string) {
+  const reasons: string[] = [];
+  let score = 0;
+  const fileTokens = tokenizePath(testFile);
+  const normalizedContent = normalizeCodeForMatching(testContent);
+
+  for (const signal of diffSignals) {
+    const signalTokens = [
+      ...tokenizeLines(signal.addedLines),
+      ...tokenizeLines(signal.removedLines),
+      ...tokenizePath(signal.file),
+    ];
+    const sharedTokens = intersectTokens(fileTokens, signalTokens);
+
+    if (sharedTokens.length > 0) {
+      score += Math.min(sharedTokens.length * 2, 5);
+      reasons.push(`Shared semantic tokens with diff in ${signal.file}: ${sharedTokens.join(', ')}`);
+    }
+
+    if (signal.changeTypes.includes('selector') || signal.changeTypes.includes('text')) {
+      score += 1;
+      reasons.push(`UI-facing change detected in ${signal.file}`);
+    }
+
+    if (signal.changeTypes.includes('navigation')) {
+      score += 1;
+      reasons.push(`Navigation-related diff detected in ${signal.file}`);
+    }
+
+    for (const replacement of signal.semanticReplacements) {
+      const testContentHints = `${fileTokens.join(' ')} ${normalizedContent}`;
+      if (
+        replacement.kind === 'class' &&
+        testContentHints.includes(stripSemanticToken(replacement.before))
+      ) {
+        score += 2;
+        reasons.push(`Semantic selector rename in ${signal.file}: .${replacement.before} -> .${replacement.after}`);
+      }
+
+      if (replacement.kind === 'text' && testContentHints.includes(stripSemanticToken(replacement.before))) {
+        score += 2;
+        reasons.push(`Semantic text rename in ${signal.file}: "${replacement.before}" -> "${replacement.after}"`);
+      }
+
+      if (
+        (replacement.kind === 'testid' ||
+          replacement.kind === 'route' ||
+          replacement.kind === 'href' ||
+          replacement.kind === 'aria-label' ||
+          replacement.kind === 'role') &&
+        testContentHints.includes(stripSemanticToken(replacement.before))
+      ) {
+        score += 2;
+        reasons.push(`Semantic ${replacement.kind} rename in ${signal.file}: ${replacement.before} -> ${replacement.after}`);
+      }
+    }
+  }
+
+  return {
+    score,
+    reasons,
+  };
+}
+
+function derivePatchIssuesFromChanges(changedFiles: string[], diffSignals: DiffSignal[] = []) {
+  const issues: string[] = [];
+
+  for (const signal of diffSignals) {
+    for (const replacement of signal.semanticReplacements) {
+      if (replacement.kind === 'class') {
+        issues.push(
+          `Selector rename from .${replacement.before} to .${replacement.after}. Prefer a role-based locator or update the selector.`
+        );
+      }
+
+      if (replacement.kind === 'testid') {
+        issues.push(
+          `data-testid changed from ${replacement.before} to ${replacement.after}. Update test ids in affected specs.`
+        );
+      }
+
+      if (replacement.kind === 'text') {
+        issues.push(
+          `Button text changed from "${replacement.before}" to "${replacement.after}". Update role locators or text assertions.`
+        );
+      }
+
+      if (replacement.kind === 'route') {
+        issues.push(
+          `Navigation route changed from ${replacement.before} to ${replacement.after}. Re-check page.goto targets and waits.`
+        );
+      }
+
+      if (replacement.kind === 'href') {
+        issues.push(
+          `Link href changed from ${replacement.before} to ${replacement.after}. Update route assertions or link locators.`
+        );
+      }
+
+      if (replacement.kind === 'aria-label') {
+        issues.push(
+          `aria-label changed from "${replacement.before}" to "${replacement.after}". Update accessible locators.`
+        );
+      }
+
+      if (replacement.kind === 'role') {
+        issues.push(
+          `Role changed from ${replacement.before} to ${replacement.after}. Update getByRole or role selectors in affected tests.`
+        );
+      }
+    }
+  }
+
+  for (const changedFile of changedFiles) {
+    const lower = changedFile.toLowerCase();
+
+    if (lower.includes('button') || lower.includes('login')) {
+      issues.push('Login button selector drift. Prefer a role-based locator.');
+    }
+
+    if (lower.includes('component') || lower.includes('ui') || lower.includes('page')) {
+      issues.push('Potential locator drift after UI refactor. Prefer stable role or test id selectors.');
+    }
+
+    if (lower.includes('route') || lower.includes('navigation')) {
+      issues.push('Navigation timing issue after route changes. Add networkidle wait after page.goto.');
+    }
+  }
+
+  return dedupeStrings(issues);
+}
+
+function buildSemanticPatchProposal(
+  content: string,
+  diffSignals: DiffSignal[],
+  issueLower: string
+) {
+  const semanticReplacements = diffSignals.flatMap((signal) => signal.semanticReplacements);
+  const textReplacement = semanticReplacements.find((item) => item.kind === 'text');
+  const classReplacement = semanticReplacements.find((item) => item.kind === 'class');
+  const testIdReplacement = semanticReplacements.find((item) => item.kind === 'testid');
+  const routeReplacement = semanticReplacements.find((item) => item.kind === 'route');
+  const hrefReplacement = semanticReplacements.find((item) => item.kind === 'href');
+  const ariaReplacement = semanticReplacements.find((item) => item.kind === 'aria-label');
+  const roleReplacement = semanticReplacements.find((item) => item.kind === 'role');
+
+  if (
+    classReplacement &&
+    textReplacement &&
+    content.includes(`page.locator('.${classReplacement.before}')`)
+  ) {
+    return {
+      reason: `Detected selector rename .${classReplacement.before} -> .${classReplacement.after} and text rename "${textReplacement.before}" -> "${textReplacement.after}" in the diff; proposed a role-based locator anchored to the new label.`,
+      confidence: 0.93,
+      findText: `page.locator('.${classReplacement.before}')`,
+      content: `page.getByRole('button', { name: '${escapeSingleQuotes(textReplacement.after)}' })`,
+    };
+  }
+
+  if (
+    testIdReplacement &&
+    (content.includes(`getByTestId('${testIdReplacement.before}')`) ||
+      content.includes(`getByTestId("${testIdReplacement.before}")`))
+  ) {
+    return {
+      reason: `Detected data-testid rename ${testIdReplacement.before} -> ${testIdReplacement.after} in the diff and updated the Playwright locator.`,
+      confidence: 0.91,
+      findText: content.includes(`getByTestId('${testIdReplacement.before}')`)
+        ? `getByTestId('${testIdReplacement.before}')`
+        : `getByTestId("${testIdReplacement.before}")`,
+      content: `getByTestId('${escapeSingleQuotes(testIdReplacement.after)}')`,
+    };
+  }
+
+  if (
+    routeReplacement &&
+    (content.includes(`page.goto('${routeReplacement.before}')`) ||
+      content.includes(`page.goto("${routeReplacement.before}")`))
+  ) {
+    return {
+      reason: `Detected navigation target rename ${routeReplacement.before} -> ${routeReplacement.after} in the diff and updated the test route.`,
+      confidence: 0.86,
+      findText: content.includes(`page.goto('${routeReplacement.before}')`)
+        ? `page.goto('${routeReplacement.before}')`
+        : `page.goto("${routeReplacement.before}")`,
+      content: `page.goto('${escapeSingleQuotes(routeReplacement.after)}')`,
+    };
+  }
+
+  if (
+    hrefReplacement &&
+    (content.includes(`href="${hrefReplacement.before}"`) ||
+      content.includes(`href='${hrefReplacement.before}'`))
+  ) {
+    return {
+      reason: `Detected href rename ${hrefReplacement.before} -> ${hrefReplacement.after} in the diff and updated the selector target.`,
+      confidence: 0.79,
+      findText: content.includes(`href="${hrefReplacement.before}"`)
+        ? `href="${hrefReplacement.before}"`
+        : `href='${hrefReplacement.before}'`,
+      content: `href="${escapeSingleQuotes(hrefReplacement.after)}"`,
+    };
+  }
+
+  if (
+    ariaReplacement &&
+    (content.includes(`getByLabel('${ariaReplacement.before}')`) ||
+      content.includes(`getByLabel("${ariaReplacement.before}")`) ||
+      content.includes(`name: '${ariaReplacement.before}'`) ||
+      content.includes(`name: "${ariaReplacement.before}"`))
+  ) {
+    const beforeLabel = content.includes(`getByLabel('${ariaReplacement.before}')`)
+      ? `getByLabel('${ariaReplacement.before}')`
+      : content.includes(`getByLabel("${ariaReplacement.before}")`)
+        ? `getByLabel("${ariaReplacement.before}")`
+        : content.includes(`name: '${ariaReplacement.before}'`)
+          ? `name: '${ariaReplacement.before}'`
+          : `name: "${ariaReplacement.before}"`;
+    const afterLabel = beforeLabel.startsWith('getByLabel')
+      ? `getByLabel('${escapeSingleQuotes(ariaReplacement.after)}')`
+      : `name: '${escapeSingleQuotes(ariaReplacement.after)}'`;
+
+    return {
+      reason: `Detected aria-label rename "${ariaReplacement.before}" -> "${ariaReplacement.after}" in the diff and updated the accessible locator.`,
+      confidence: 0.87,
+      findText: beforeLabel,
+      content: afterLabel,
+    };
+  }
+
+  if (
+    roleReplacement &&
+    (content.includes(`getByRole('${roleReplacement.before}'`) ||
+      content.includes(`getByRole("${roleReplacement.before}"`) ||
+      content.includes(`[role="${roleReplacement.before}"]`))
+  ) {
+    const findText = content.includes(`getByRole('${roleReplacement.before}'`)
+      ? `getByRole('${roleReplacement.before}'`
+      : content.includes(`getByRole("${roleReplacement.before}"`)
+        ? `getByRole("${roleReplacement.before}"`
+        : `[role="${roleReplacement.before}"]`;
+    const nextContent = findText.startsWith('getByRole')
+      ? findText.replace(roleReplacement.before, roleReplacement.after)
+      : `[role="${escapeSingleQuotes(roleReplacement.after)}"]`;
+
+    return {
+      reason: `Detected role rename ${roleReplacement.before} -> ${roleReplacement.after} in the diff and updated the locator role.`,
+      confidence: 0.82,
+      findText,
+      content: nextContent,
+    };
+  }
+
+  if (classReplacement && content.includes(`page.locator('.${classReplacement.before}')`)) {
+    return {
+      reason: `Detected selector rename .${classReplacement.before} -> .${classReplacement.after} in the diff and updated the locator to match.`,
+      confidence: 0.84,
+      findText: `page.locator('.${classReplacement.before}')`,
+      content: `page.locator('.${escapeSingleQuotes(classReplacement.after)}')`,
+    };
+  }
+
+  if (
+    textReplacement &&
+    issueLower.includes('role') &&
+    content.includes(`getByRole('button', { name: '${textReplacement.before}' })`)
+  ) {
+    return {
+      reason: `Detected text rename "${textReplacement.before}" -> "${textReplacement.after}" in the diff and updated the role locator label.`,
+      confidence: 0.88,
+      findText: `getByRole('button', { name: '${escapeSingleQuotes(textReplacement.before)}' })`,
+      content: `getByRole('button', { name: '${escapeSingleQuotes(textReplacement.after)}' })`,
+    };
+  }
+
+  return null;
+}
+
+function tokenizePath(value: string) {
+  return value
+    .toLowerCase()
+    .split(/[\/_.-]+/)
+    .filter((token) => token.length >= 3 && !['spec', 'test', 'tests', 'src'].includes(token));
+}
+
+function tokenizeLines(lines: string[]) {
+  return lines
+    .flatMap((line) => line.toLowerCase().split(/[^a-z0-9]+/))
+    .filter((token) => token.length >= 3);
+}
+
+function stripSemanticToken(value: string) {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
+function normalizeCodeForMatching(value: string) {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, ' ');
+}
+
+function resolvePlaywrightCliPath(repoPath: string) {
+  let current = resolve(repoPath);
+
+  while (true) {
+    const candidate = join(current, 'node_modules', 'playwright', 'cli.js');
+    try {
+      require.resolve(candidate);
+      return candidate;
+    } catch {
+      const parent = dirname(current);
+      if (parent === current) {
+        break;
+      }
+      current = parent;
+    }
+  }
+
+  throw new Error('Could not resolve Playwright CLI from the repository or workspace');
+}
+
+function isConfiguredTestFile(filePath: string, settings: RepoSettings) {
+  if (TEST_FILE_PATTERN.test(filePath)) {
+    return true;
+  }
+
+  const normalizedPath = filePath.toLowerCase();
+  return settings.testDirectories.some((directory) => {
+    const normalizedDirectory = directory.replace(/\\/g, '/').toLowerCase().replace(/\/+$/, '');
+    return normalizedPath.startsWith(`${normalizedDirectory}/`);
+  });
+}
+
+function isConfiguredSourceFile(filePath: string, settings: RepoSettings) {
+  if (!SOURCE_FILE_PATTERN.test(filePath) || isConfiguredTestFile(filePath, settings)) {
+    return false;
+  }
+
+  const normalizedPath = filePath.toLowerCase();
+  return settings.sourceDirectories.some((directory) => {
+    const normalizedDirectory = directory.replace(/\\/g, '/').toLowerCase().replace(/\/+$/, '');
+    return normalizedPath.startsWith(`${normalizedDirectory}/`);
+  });
+}
+
+function intersectTokens(left: string[], right: string[]) {
+  const rightSet = new Set(right);
+  return left.filter((token) => rightSet.has(token));
+}
+
+function sameBasenameFamily(left: string, right: string) {
+  const leftName = basenameWithoutExtensions(left);
+  const rightName = basenameWithoutExtensions(right);
+  return leftName === rightName || leftName.includes(rightName) || rightName.includes(leftName);
+}
+
+function basenameWithoutExtensions(value: string) {
+  const parts = value.split('/');
+  const fileName = parts[parts.length - 1];
+  return fileName.replace(/\.(spec|test)\./g, '.').replace(/\.[^.]+$/g, '');
+}
+
+function dedupeStrings(values: string[]) {
+  return Array.from(new Set(values));
+}
+
+function confidenceLevelFromValue(value: number): ConfidenceLevel {
+  if (value >= 0.85) {
+    return 'high';
+  }
+  if (value >= 0.65) {
+    return 'medium';
+  }
+  return 'low';
+}
+
+function confidenceLevelFromScore(score: number): ConfidenceLevel {
+  if (score >= 7) {
+    return 'high';
+  }
+  if (score >= 4) {
+    return 'medium';
+  }
+  return 'low';
+}
+
+function getCachedValue<T>(cache: Map<string, { expiresAt: number; value: T }>, key: string) {
+  const hit = cache.get(key);
+  if (!hit) {
+    return null;
+  }
+
+  if (Date.now() > hit.expiresAt) {
+    cache.delete(key);
+    return null;
+  }
+
+  return hit.value;
+}
+
+function setCachedValue<T>(cache: Map<string, { expiresAt: number; value: T }>, key: string, value: T) {
+  cache.set(key, {
+    expiresAt: Date.now() + CACHE_TTL_MS,
+    value,
+  });
+}
+
+async function loadRepoSettings(repoPath: string): Promise<RepoSettings> {
+  const cached = getCachedValue(repoSettingsCache, repoPath);
+  if (cached) {
+    return cached;
+  }
+
+  const defaultSettings: RepoSettings = {
+    ignorePatterns: [],
+    testDirectories: ['tests', 'test', 'e2e', 'specs'],
+    sourceDirectories: ['src'],
+  };
+
+  const ignoreFile = await readFile(join(repoPath, '.autoqaignore'), 'utf8').catch(() => '');
+  const configFile = await readFile(join(repoPath, 'autoqa.config.json'), 'utf8').catch(() => '');
+  const ignorePatterns = ignoreFile
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0 && !line.startsWith('#'));
+
+  if (!configFile) {
+    const settings = {
+      ...defaultSettings,
+      ignorePatterns: dedupeStrings(ignorePatterns),
+    };
+    setCachedValue(repoSettingsCache, repoPath, settings);
+    return settings;
+  }
+
+  try {
+    const parsed = JSON.parse(configFile) as Partial<{
+      ignore: string[];
+      testDirectories: string[];
+      sourceDirectories: string[];
+    }>;
+
+    const settings = {
+      ignorePatterns: dedupeStrings([...ignorePatterns, ...(parsed.ignore ?? [])]),
+      testDirectories: parsed.testDirectories?.length
+        ? parsed.testDirectories
+        : defaultSettings.testDirectories,
+      sourceDirectories: parsed.sourceDirectories?.length
+        ? parsed.sourceDirectories
+        : defaultSettings.sourceDirectories,
+    };
+    setCachedValue(repoSettingsCache, repoPath, settings);
+    return settings;
+  } catch {
+    const settings = {
+      ...defaultSettings,
+      ignorePatterns: dedupeStrings(ignorePatterns),
+    };
+    setCachedValue(repoSettingsCache, repoPath, settings);
+    return settings;
+  }
+}
+
+function shouldIgnorePath(relativePath: string, settings: RepoSettings) {
+  const normalizedPath = relativePath.split(sep).join('/').toLowerCase();
+  const pathSegments = normalizedPath.split('/').filter(Boolean);
+
+  if (pathSegments.some((segment) => IGNORED_DIRECTORIES.has(segment))) {
+    return true;
+  }
+
+  return settings.ignorePatterns.some((pattern) => {
+    const normalizedPattern = pattern.split(sep).join('/').toLowerCase();
+    if (!normalizedPattern.includes('*')) {
+      const prefix = normalizedPattern.endsWith('/') ? normalizedPattern : `${normalizedPattern}`;
+      return (
+        normalizedPath === prefix ||
+        normalizedPath.startsWith(`${prefix}/`) ||
+        normalizedPath.includes(`/${prefix}/`)
+      );
+    }
+
+    const escaped = normalizedPattern.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*');
+    return new RegExp(`^${escaped}$`).test(normalizedPath);
+  });
+}
+
+async function listUntrackedFiles(repoPath: string) {
+  const { stdout } = await execFileAsync('git', ['ls-files', '--others', '--exclude-standard'], {
+    cwd: repoPath,
+  });
+
+  return stdout
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => line.split(sep).join('/'));
+}
+
+async function resolveAutoBase(repoPath: string) {
+  const upstream = await execFileAsync(
+    'git',
+    ['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{upstream}'],
+    { cwd: repoPath }
+  )
+    .then(({ stdout }) => stdout.trim())
+    .catch(() => '');
+
+  const candidateRefs = upstream
+    ? [upstream]
+    : ['origin/main', 'origin/master', 'main', 'master'];
+
+  let compareRef = '';
+  for (const ref of candidateRefs) {
+    const exists = await execFileAsync('git', ['rev-parse', '--verify', ref], { cwd: repoPath })
+      .then(() => true)
+      .catch(() => false);
+    if (exists) {
+      compareRef = ref;
+      break;
+    }
+  }
+
+  if (!compareRef) {
+    const hasParentCommit = await execFileAsync('git', ['rev-parse', '--verify', 'HEAD~1'], {
+      cwd: repoPath,
+    })
+      .then(() => true)
+      .catch(() => false);
+    if (hasParentCommit) {
       return {
-        description: `Applied ${strategy} strategy: ${healingResult.strategy}`,
-        code: `await page.click('${healingResult.newSelector}'); // Updated from ${test.selector}`,
-        confidence: healingResult.confidence,
+        compareRef: 'HEAD~1',
+        mergeBase: 'HEAD~1',
       };
     }
 
-    throw new Error('Self-healing failed to find alternative selector');
-  } catch (error) {
-    return {
-      description: 'Self-healing attempt failed',
-      code: '// Unable to automatically fix - manual intervention required',
-      confidence: 0,
-    };
+    throw new Error('Could not resolve an automatic merge-base reference');
   }
+
+  const { stdout } = await execFileAsync('git', ['merge-base', 'HEAD', compareRef], { cwd: repoPath });
+  const mergeBase = stdout.trim();
+  if (!mergeBase) {
+    throw new Error(`Could not resolve merge-base for HEAD and ${compareRef}`);
+  }
+
+  return {
+    compareRef,
+    mergeBase,
+  };
 }
 
-async function compareScreenshots(testId: string, baselineUrl: string, compareUrl: string) {
-  try {
-    // Initialize browser if needed
-    if (!browser) {
-      browser = await chromium.launch({ headless: true });
+async function resolveChangedFiles(
+  repoPath: string,
+  changedFiles: string[] | undefined,
+  baseRef: string | undefined,
+  headRef: string | undefined,
+  workingTree: boolean | undefined,
+  staged: boolean | undefined,
+  autoBase: boolean | undefined
+) {
+  const absoluteRepoPath = await resolveDirectoryPath(repoPath);
+  const settings = await loadRepoSettings(absoluteRepoPath);
+
+  if (workingTree) {
+    const diffArgs = ['diff', '--name-only'];
+    if (staged) {
+      diffArgs.push('--cached');
     }
 
-    const context = await browser.newContext();
-    const page = await context.newPage();
+    const { stdout } = await execFileAsync('git', diffArgs, { cwd: absoluteRepoPath });
+    const trackedFiles = stdout
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .map((line) => line.split(sep).join('/'));
+    const untrackedFiles = staged
+      ? []
+      : await listUntrackedFiles(absoluteRepoPath);
+    const files = dedupeStrings([...trackedFiles, ...untrackedFiles]).filter(
+      (file) => !shouldIgnorePath(file, settings)
+    );
 
-    // Capture baseline screenshot
-    await page.goto(baselineUrl);
-    await page.waitForLoadState('networkidle');
-    const baselineBuffer = await page.screenshot();
+    if (!files.length) {
+      throw new Error(`No ${staged ? 'staged' : 'unstaged'} working tree changes found`);
+    }
 
-    // Capture comparison screenshot
-    await page.goto(compareUrl);
-    await page.waitForLoadState('networkidle');
-    const compareBuffer = await page.screenshot();
+    return {
+      changedFiles: files,
+      diffSource: {
+        mode: 'working_tree' as const,
+        staged: Boolean(staged),
+      },
+      untrackedFiles: untrackedFiles.filter((file) => !shouldIgnorePath(file, settings)),
+    };
+  }
 
-    await context.close();
+  if (autoBase) {
+    const autoBaseInfo = await resolveAutoBase(absoluteRepoPath);
+    const args = ['diff', '--name-only', autoBaseInfo.mergeBase, 'HEAD'];
+    const { stdout } = await execFileAsync('git', args, { cwd: absoluteRepoPath });
+    const files = stdout
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .map((line) => line.split(sep).join('/'))
+      .filter((line) => !shouldIgnorePath(line, settings));
 
-    // Use Visual Regression Engine for comparison
-    const result = await visualRegressionEngine.compare({
-      testId,
-      baseline: baselineBuffer,
-      current: compareBuffer,
-      threshold: 0.1,
+    if (!files.length) {
+      throw new Error(`No changed files found from auto merge-base against ${autoBaseInfo.compareRef}`);
+    }
+
+    return {
+      changedFiles: files,
+      diffSource: {
+        mode: 'git' as const,
+        baseRef: autoBaseInfo.mergeBase,
+        headRef: 'HEAD',
+        autoBase: true,
+        compareRef: autoBaseInfo.compareRef,
+      },
+      untrackedFiles: [] as string[],
+    };
+  }
+
+  if (baseRef) {
+    const args = ['diff', '--name-only', baseRef];
+    if (headRef) {
+      args.push(headRef);
+    }
+
+    const { stdout } = await execFileAsync('git', args, { cwd: absoluteRepoPath });
+    const files = stdout
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .map((line) => line.split(sep).join('/'));
+
+    if (!files.length) {
+      throw new Error(
+        `No changed files found from git diff ${baseRef}${headRef ? `..${headRef}` : ''}`
+      );
+    }
+
+    return {
+      changedFiles: files,
+      diffSource: {
+        mode: 'git' as const,
+        baseRef,
+        headRef,
+      },
+      untrackedFiles: [] as string[],
+    };
+  }
+
+  if (!changedFiles?.length) {
+    throw new Error('No changed files available for analysis');
+  }
+
+  return {
+      changedFiles: changedFiles
+        .map((file) => file.split(sep).join('/'))
+        .filter((file) => !shouldIgnorePath(file, settings)),
+    diffSource: {
+      mode: 'manual' as const,
+    },
+    untrackedFiles: [] as string[],
+  };
+}
+
+async function loadDiffSignals(
+  repoPath: string,
+  changedFiles: string[],
+  baseRef: string | undefined,
+  headRef: string | undefined,
+  workingTree: boolean = false,
+  staged: boolean = false,
+  untrackedFiles: string[] = []
+) {
+  const cacheKey = JSON.stringify({
+    repoPath,
+    changedFiles,
+    baseRef,
+    headRef,
+    workingTree,
+    staged,
+    untrackedFiles,
+  });
+  const cached = getCachedValue(diffSignalCache, cacheKey);
+  if (cached) {
+    return cached;
+  }
+
+  if (!baseRef && !workingTree) {
+    const signals = changedFiles.map((file) => ({
+      file,
+      addedLines: [],
+      removedLines: [],
+      changeTypes: classifyChangeTypes([], []),
+      semanticReplacements: [],
+    }));
+    setCachedValue(diffSignalCache, cacheKey, signals);
+    return signals;
+  }
+
+  const signals: DiffSignal[] = [];
+  const untrackedSet = new Set(untrackedFiles);
+
+  for (const file of changedFiles) {
+    if (workingTree && untrackedSet.has(file)) {
+      const absoluteFilePath = resolveRepoRelativePath(repoPath, file);
+      const content = await readFile(absoluteFilePath, 'utf8').catch(() => '');
+      const addedLines = content.split(/\r?\n/).filter(Boolean);
+      signals.push({
+        file,
+        addedLines,
+        removedLines: [],
+        changeTypes: classifyChangeTypes(addedLines, []),
+        semanticReplacements: extractSemanticReplacements(addedLines, []),
+      });
+      continue;
+    }
+
+    const args = ['diff', '--unified=0'];
+    if (workingTree) {
+      if (staged) {
+        args.push('--cached');
+      }
+    } else {
+      args.push(baseRef as string);
+      if (headRef) {
+        args.push(headRef);
+      }
+    }
+    args.push('--', file);
+
+    const { stdout } = await execFileAsync('git', args, { cwd: repoPath });
+    const addedLines = stdout
+      .split(/\r?\n/)
+      .filter((line) => line.startsWith('+') && !line.startsWith('+++'))
+      .map((line) => line.slice(1));
+    const removedLines = stdout
+      .split(/\r?\n/)
+      .filter((line) => line.startsWith('-') && !line.startsWith('---'))
+      .map((line) => line.slice(1));
+
+    signals.push({
+      file,
+      addedLines,
+      removedLines,
+      changeTypes: classifyChangeTypes(addedLines, removedLines),
+      semanticReplacements: extractSemanticReplacements(addedLines, removedLines),
     });
-
-    return {
-      percentage: result.diffPercentage,
-      passed: result.passed,
-      diffUrl: result.diffImageUrl || 'N/A',
-      pixelsDifferent: result.pixelsDifferent,
-    };
-  } catch (error) {
-    return {
-      percentage: 0,
-      passed: false,
-      diffUrl: 'Error during comparison',
-      error: error instanceof Error ? error.message : String(error),
-    };
   }
+
+  setCachedValue(diffSignalCache, cacheKey, signals);
+  return signals;
 }
 
-async function generateReport(testIds: string[], format: string) {
-  try {
-    // Collect test results
-    const testResults = testIds.map(id => testStore.get(id)).filter(Boolean);
+function classifyChangeTypes(addedLines: string[], removedLines: string[]) {
+  const combined = [...addedLines, ...removedLines].join('\n').toLowerCase();
+  const changeTypes: string[] = [];
 
-    // Use Report Generator to create comprehensive report
-    const report = await reportGenerator.generate({
-      tests: testResults,
-      format: format as 'html' | 'json' | 'markdown',
-      includeScreenshots: true,
-      includeTimeline: true,
+  if (
+    combined.includes('locator(') ||
+    combined.includes('getbyrole') ||
+    combined.includes('getbytestid') ||
+    combined.includes('getbylabel') ||
+    combined.includes('classname') ||
+    combined.includes('data-testid') ||
+    combined.includes('aria-label') ||
+    combined.includes('role=') ||
+    combined.includes('href=')
+  ) {
+    changeTypes.push('selector');
+  }
+
+  if (combined.includes('login') || combined.includes('sign in') || combined.includes('text(')) {
+    changeTypes.push('text');
+  }
+
+  if (
+    combined.includes('page.goto') ||
+    combined.includes('networkidle') ||
+    combined.includes('route') ||
+    combined.includes('href=')
+  ) {
+    changeTypes.push('navigation');
+  }
+
+  return dedupeStrings(changeTypes);
+}
+
+function extractSemanticReplacements(addedLines: string[], removedLines: string[]) {
+  const replacements: SemanticReplacement[] = [];
+  const pairCount = Math.min(addedLines.length, removedLines.length);
+
+  for (let index = 0; index < pairCount; index += 1) {
+    const added = addedLines[index];
+    const removed = removedLines[index];
+
+    collectRegexReplacement(
+      replacements,
+      'class',
+      /className=["']([^"']+)["']/,
+      removed,
+      added
+    );
+    collectRegexReplacement(
+      replacements,
+      'testid',
+      /data-testid=["']([^"']+)["']/,
+      removed,
+      added
+    );
+    collectRegexReplacement(
+      replacements,
+      'route',
+      /page\.goto\((['"])(.*?)\1\)/,
+      removed,
+      added
+    );
+    collectRegexReplacement(
+      replacements,
+      'href',
+      /href=["']([^"']+)["']/,
+      removed,
+      added
+    );
+    collectRegexReplacement(
+      replacements,
+      'aria-label',
+      /aria-label=["']([^"']+)["']/,
+      removed,
+      added
+    );
+    collectRegexReplacement(
+      replacements,
+      'role',
+      /role=["']([^"']+)["']/,
+      removed,
+      added
+    );
+
+    const removedTexts = extractVisibleTexts(removed);
+    const addedTexts = extractVisibleTexts(added);
+    const textPairCount = Math.min(removedTexts.length, addedTexts.length);
+    for (let textIndex = 0; textIndex < textPairCount; textIndex += 1) {
+      const before = removedTexts[textIndex].trim();
+      const after = addedTexts[textIndex].trim();
+      if (before && after && before !== after) {
+        replacements.push({
+          kind: 'text',
+          before,
+          after,
+        });
+      }
+    }
+  }
+
+  return dedupeSemanticReplacements(replacements);
+}
+
+function collectRegexReplacement(
+  replacements: SemanticReplacement[],
+  kind: SemanticReplacement['kind'],
+  pattern: RegExp,
+  removedLine: string,
+  addedLine: string
+) {
+  const before = removedLine.match(pattern)?.[kind === 'route' ? 2 : 1]?.trim();
+  const after = addedLine.match(pattern)?.[kind === 'route' ? 2 : 1]?.trim();
+
+  if (before && after && before !== after) {
+    replacements.push({
+      kind,
+      before,
+      after,
     });
-
-    return {
-      url: report.url || 'report.html',
-      summary: report.summary,
-    };
-  } catch (error) {
-    return {
-      url: 'Error generating report',
-      error: error instanceof Error ? error.message : String(error),
-    };
   }
 }
 
-function generateTestId(): string {
-  return `test_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+function extractVisibleTexts(line: string) {
+  return Array.from(line.matchAll(/>([^<>]+)</g), (match) => match[1]).filter(Boolean);
 }
 
-// Cleanup function for browser
-async function cleanup() {
-  if (browser) {
-    await browser.close();
-    browser = null;
+function dedupeSemanticReplacements(values: SemanticReplacement[]) {
+  const seen = new Set<string>();
+  return values.filter((value) => {
+    const key = `${value.kind}:${value.before}:${value.after}`;
+    if (seen.has(key)) {
+      return false;
+    }
+
+    seen.add(key);
+    return true;
+  });
+}
+
+function countOccurrences(haystack: string, needle: string) {
+  if (!needle) {
+    return 0;
   }
+
+  return haystack.split(needle).length - 1;
 }
 
-// Handle process termination
-process.on('SIGINT', async () => {
-  await cleanup();
-  process.exit(0);
-});
+function buildPreview(value: string) {
+  const lines = value.split('\n');
+  return lines.slice(Math.max(lines.length - 8, 0)).join('\n');
+}
 
-process.on('SIGTERM', async () => {
-  await cleanup();
-  process.exit(0);
-});
+function buildUnifiedDiff(filePath: string, before: string, after: string) {
+  const normalizedPath = filePath.split(sep).join('/');
 
-// Start Server
+  if (before === after) {
+    return `--- a/${normalizedPath}\n+++ b/${normalizedPath}\n`;
+  }
+
+  const beforeLines = before.split('\n');
+  const afterLines = after.split('\n');
+
+  let start = 0;
+  while (
+    start < beforeLines.length &&
+    start < afterLines.length &&
+    beforeLines[start] === afterLines[start]
+  ) {
+    start += 1;
+  }
+
+  let endBefore = beforeLines.length - 1;
+  let endAfter = afterLines.length - 1;
+  while (endBefore >= start && endAfter >= start && beforeLines[endBefore] === afterLines[endAfter]) {
+    endBefore -= 1;
+    endAfter -= 1;
+  }
+
+  const removed = beforeLines.slice(start, endBefore + 1);
+  const added = afterLines.slice(start, endAfter + 1);
+  const beforeCount = removed.length;
+  const afterCount = added.length;
+  const hunkStart = start + 1;
+
+  return [
+    `--- a/${normalizedPath}`,
+    `+++ b/${normalizedPath}`,
+    `@@ -${hunkStart},${beforeCount} +${hunkStart},${afterCount} @@`,
+    ...removed.map((line) => `-${line}`),
+    ...added.map((line) => `+${line}`),
+  ].join('\n');
+}
+
+function escapeSingleQuotes(value: string) {
+  return value.replace(/'/g, "\\'");
+}
+
+function escapeHtml(value: string) {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
 async function main() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
