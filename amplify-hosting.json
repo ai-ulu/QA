@@ -1,8 +1,0 @@
-{
-  "version": "1.0",
-  "appRoot": ".",
-  "framework": "NONE",
-  "startCommand": "docker-compose up",
-  "buildCommand": "docker-compose build",
-  "cache": false
-}

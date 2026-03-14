@@ -1,0 +1,14 @@
+[
+  {
+    "name": "playwright",
+    "url": "https://github.com/microsoft/playwright.git"
+  },
+  {
+    "name": "playwright-examples",
+    "url": "https://github.com/checkly/playwright-examples.git"
+  },
+  {
+    "name": "playwright-cucumber-ts",
+    "url": "https://github.com/ortoniKC/Playwright_Cucumber_TS.git"
+  }
+]

@@ -1,55 +1,28 @@
 {
-  "name": "autoqa-pilot",
+  "name": "autoqa-mcp-workspace",
   "version": "1.0.0",
-  "description": "AI-powered autonomous web testing automation platform",
+  "description": "Lean workspace for the AutoQA MCP server",
   "private": true,
   "workspaces": [
-    "packages/*",
-    "apps/*"
+    "packages/mcp-server"
   ],
   "scripts": {
-    "start": "npx serve packages/frontend/dist -p 3000 -s",
-    "dev": "turbo run dev",
-    "build": "turbo run build",
-    "test": "turbo run test",
-    "test:unit": "turbo run test:unit",
-    "test:property": "turbo run test:property",
-    "test:integration": "turbo run test:integration",
-    "test:e2e": "turbo run test:e2e",
-    "lint": "turbo run lint",
-    "lint:fix": "turbo run lint:fix",
-    "type-check": "turbo run type-check",
-    "clean": "turbo run clean",
-    "docker:build": "docker-compose build",
-    "docker:up": "docker-compose up -d",
-    "docker:down": "docker-compose down",
-    "security:scan": "snyk test",
-    "prepare": "husky install"
-  },
-  "devDependencies": {
-    "@types/node": "^20.10.0",
-    "@typescript-eslint/eslint-plugin": "^6.21.0",
-    "@typescript-eslint/parser": "^6.21.0",
-    "eslint": "^8.54.0",
-    "eslint-config-prettier": "^9.0.0",
-    "eslint-plugin-security": "^1.7.1",
-    "husky": "^8.0.3",
-    "lint-staged": "^15.1.0",
-    "prettier": "^3.1.0",
-    "turbo": "^1.10.16",
-    "typescript": "^5.3.2"
+    "start": "pnpm --filter @autoqa/mcp-server start",
+    "dev": "pnpm --filter @autoqa/mcp-server dev",
+    "build": "pnpm --filter @autoqa/mcp-server build",
+    "test": "pnpm --filter @autoqa/mcp-server test",
+    "ci:impact": "pnpm --filter @autoqa/mcp-server ci:impact",
+    "dogfood": "pnpm --filter @autoqa/mcp-server dogfood",
+    "release:check": "pnpm --filter @autoqa/mcp-server release:check",
+    "smoke": "pnpm --filter @autoqa/mcp-server smoke",
+    "clean": "Remove-Item -Recurse -Force .\\packages\\mcp-server\\dist -ErrorAction SilentlyContinue"
   },
   "engines": {
     "node": ">=20.0.0",
-    "npm": ">=10.0.0"
-  },
-  "lint-staged": {
-    "*.{json,md,yml,yaml}": [
-      "prettier --write"
-    ]
+    "pnpm": ">=10.0.0"
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/agiulucom42-del/QA.git"
+    "url": "https://github.com/ai-ulu/QA.git"
   }
 }
