@@ -172,3 +172,6 @@ temp/
 # Local development
 .local/
 local/
+
+# AutoQA local memory state
+.autoqa/state/

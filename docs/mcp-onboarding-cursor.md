@@ -1,5 +1,11 @@
 # Cursor Onboarding
 
+Fast path:
+
+```bash
+pnpm onboard:mcp
+```
+
 Add AutoQA as an MCP server pointing at the built stdio entry:
 
 ```json

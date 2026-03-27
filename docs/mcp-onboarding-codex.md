@@ -1,5 +1,11 @@
 # Codex Onboarding
 
+Fast path:
+
+```bash
+pnpm onboard:mcp
+```
+
 Use the built server entry:
 
 ```json

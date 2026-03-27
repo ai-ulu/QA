@@ -8,6 +8,11 @@ Local-first MCP server for change-aware Playwright maintenance.
 pnpm build
 pnpm test
 pnpm start
+pnpm run onboard:mcp
+pnpm run pr:comment -- --repo . --dry-run
+pnpm run memory:inspect
+pnpm run memory:reset
+pnpm run v2:gate
 pnpm run ci:impact
 pnpm run dogfood -- --limit 1
 ```
@@ -25,6 +30,93 @@ pnpm run dogfood -- --limit 1
 - `autoqa_ci_summary`
 
 Primary flow: `scan -> impact -> suggest/apply -> execute -> verify -> ci summary`.
+
+PR bot helper:
+
+- `pnpm run pr:comment -- --repo . --pr <number>`
+- `pnpm run pr:comment -- --repo . --dry-run`
+- `pnpm run pr:comment -- --repo . --report-only`
+
+`autoqa_ci_summary` in `github` mode now emits marker blocks for stable comment upsert:
+
+- `<!-- autoqa:pr-comment:v1 -->`
+- `<!-- autoqa:pr-comment:block:start -->`
+- `<!-- autoqa:pr-comment:block:end -->`
+
+Artifact-aware inputs:
+
+- `autoqa_suggest_patch` and `autoqa_verify_patch` support:
+  - `reportDir` (for example `test-results` or `playwright-report`)
+  - `artifactPaths` (explicit paths like `test-results/login/error-context.md`)
+- Parsed artifact signals are returned in `evidenceUsed` and included in verification reports under `Evidence used`.
+
+Local repo memory:
+
+- `verify_patch` writes local state to `.autoqa/state/memory.json`.
+- `pnpm run memory:inspect` prints summary + full JSON payload.
+- `pnpm run memory:reset` deletes local memory (force-enabled in package script).
+- Current retention caps:
+  - `recentFailures`: 50
+  - `acceptedPatches`: 80
+  - `rejectedPatches`: 80
+  - `selectorHistory`: 120
+  - `routeHistory`: 120
+
+Policy config (`autoqa.config.json`):
+
+```json
+{
+  "policy": {
+    "patchAllow": ["tests/**", "qa-tests/**"],
+    "patchDeny": ["tests/legacy/**"],
+    "protectedFiles": ["src/auth/**", "src/billing/**"],
+    "confidenceThresholds": {
+      "suggest": 0.55,
+      "apply": 0.85,
+      "verify": 0.6
+    },
+    "branch": {
+      "reportOnly": ["main", "release/*"]
+    },
+    "testBudget": {
+      "maxTests": 3
+    }
+  }
+}
+```
+
+Behavior:
+
+- `apply: true` olsa bile policy block varsa patch dry-run kalir.
+- `autoqa_verify_patch` ve `autoqa_execute_run_plan`, `testBudget.maxTests` limitini uygular.
+- Policy block nedenleri patch `reason` veya verify `stderr` icinde acikca doner.
+- `autoqa_suggest_patch` ciktilarinda `blockedReasons` listesi yer alir.
+- `autoqa_suggest_patch` ciktilarinda `policy` objesi de doner:
+  - `mode`
+  - `applyThreshold`
+  - `shouldApply`
+  - `blockedReasons`
+- CLI override:
+  - `policyMode: "report_only"` -> repo config ne olursa olsun apply kapatilir.
+  - `policyMode: "enforce"` -> policy kurallari zorunlu uygulanir.
+  - `policyMode: "auto"` -> varsayilan repo policy davranisi.
+
+V2 milestone gate:
+
+- `pnpm run v2:gate`
+- Steps:
+  - build
+  - test (includes smoke)
+  - `ci-impact` github summary generation
+  - `pr-bot` dry-run summary generation
+
+Onboarding shortcut:
+
+```bash
+pnpm run onboard:mcp
+```
+
+This writes MCP config for Codex, VS Code, Cursor, and Claude Desktop. Add `-- --dry-run` to preview.
 
 ## Release Gate
 
