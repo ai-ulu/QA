@@ -1,5 +1,11 @@
 # Claude Desktop Onboarding
 
+Fast path:
+
+```bash
+pnpm onboard:mcp
+```
+
 Point Claude Desktop at the AutoQA stdio server:
 
 ```json

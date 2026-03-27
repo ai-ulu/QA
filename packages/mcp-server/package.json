@@ -15,6 +15,10 @@
   "files": [
     "dist",
     "scripts/ci-impact.mjs",
+    "scripts/v2-gate.mjs",
+    "scripts/memory-inspect.mjs",
+    "scripts/memory-reset.mjs",
+    "scripts/onboard-mcp.mjs",
     "README.md",
     "CHANGELOG.md"
   ],
@@ -41,7 +45,12 @@
     "dev": "tsc --watch",
     "dogfood": "node ./scripts/dogfood.mjs",
     "start": "node dist/index.js",
+    "onboard:mcp": "node ./scripts/onboard-mcp.mjs",
+    "pr:comment": "node ./scripts/pr-bot.mjs",
+    "memory:inspect": "node ./scripts/memory-inspect.mjs --repo .",
+    "memory:reset": "node ./scripts/memory-reset.mjs --repo . --force",
     "ci:impact": "node ./scripts/ci-impact.mjs --repo . --auto-base --format github",
+    "v2:gate": "node ./scripts/v2-gate.mjs --repo .",
     "prepack": "pnpm run build",
     "release:check": "pnpm run build && pnpm run test && npm pack --dry-run",
     "smoke": "node ./scripts/smoke-test.mjs",

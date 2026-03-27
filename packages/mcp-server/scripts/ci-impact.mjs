@@ -14,7 +14,7 @@ function getFlag(name) {
 }
 
 function getOption(name, fallback) {
-  const index = process.argv.indexOf(name);
+  const index = process.argv.lastIndexOf(name);
   if (index === -1 || index === process.argv.length - 1) {
     return fallback;
   }

@@ -30,6 +30,7 @@ const expectedTools = [
 ];
 
 const execFileAsync = promisify(execFile);
+const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const client = new Client(
   {
@@ -55,6 +56,7 @@ async function createRepoFixture() {
   await mkdir(join(repoPath, 'tests'), { recursive: true });
   await mkdir(join(repoPath, 'qa-tests'), { recursive: true });
   await mkdir(join(repoPath, 'src'), { recursive: true });
+  await mkdir(join(repoPath, 'test-results', 'login-selector-drift'), { recursive: true });
 
   await writeFile(
     join(repoPath, 'package.json'),
@@ -80,6 +82,22 @@ async function createRepoFixture() {
         ignore: ['dist/**'],
         testDirectories: ['tests', 'qa-tests'],
         sourceDirectories: ['src'],
+        policy: {
+          patchAllow: ['tests/**', 'qa-tests/**'],
+          patchDeny: [],
+          protectedFiles: ['src/auth/**', 'src/billing/**'],
+          confidenceThresholds: {
+            suggest: 0.55,
+            apply: 0.85,
+            verify: 0.6,
+          },
+          branch: {
+            reportOnly: ['main', 'release/*'],
+          },
+          testBudget: {
+            maxTests: 3,
+          },
+        },
       },
       null,
       2
@@ -121,6 +139,17 @@ async function createRepoFixture() {
     `export const ignored = 'ignore me';\n`,
     'utf8'
   );
+  await writeFile(
+    join(repoPath, 'test-results', 'login-selector-drift', 'error-context.md'),
+    [
+      '# Error Context',
+      '',
+      "Locator: page.locator('.login-button')",
+      'Error: element(s) not found',
+      'Expected: visible',
+    ].join('\n'),
+    'utf8'
+  );
 
   await execFileAsync('git', ['init'], { cwd: repoPath });
   await execFileAsync('git', ['config', 'user.email', 'autoqa@example.com'], { cwd: repoPath });
@@ -145,6 +174,16 @@ function extractMatch(text, regex, message) {
   return match[1];
 }
 
+function parseToolPayload(result, expectedToolName) {
+  const payload = JSON.parse(extractText(result));
+  assert.match(payload.runId, /^autoqa_/);
+  assert.equal(payload.toolName, expectedToolName);
+  assert.equal(typeof payload.generatedAt, 'string');
+  assert.ok(Array.isArray(payload.artifacts));
+  assert.ok(payload.result && typeof payload.result === 'object');
+  return payload;
+}
+
 let repoFixturePath;
 
 try {
@@ -165,7 +204,8 @@ try {
       sampleLimit: 5,
     },
   });
-  const scanPayload = JSON.parse(extractText(scanResult));
+  const scanPayload = parseToolPayload(scanResult, 'autoqa_scan_repo');
+  assert.equal(scanPayload.status, 'completed');
   assert.equal(scanPayload.packageManager, 'pnpm');
   assert.ok(scanPayload.frameworks.includes('playwright'));
   assert.ok(scanPayload.playwrightConfigFiles.includes('playwright.config.ts'));
@@ -213,6 +253,137 @@ try {
   assert.match(suggestPatchPayload.patch.findText, /page\.locator/);
   assert.match(suggestPatchPayload.patch.content, /getByRole/);
   assert.match(suggestPatchPayload.diff, /\+  await expect\(page\.getByRole\('button', \{ name: 'Login' \}\)\)\.toBeVisible\(\);/);
+  assert.ok(Array.isArray(suggestPatchPayload.evidenceUsed));
+  assert.equal(suggestPatchPayload.evidenceUsed.length, 0);
+
+  await writeFile(
+    join(repoFixturePath, 'autoqa.config.json'),
+    `${JSON.stringify(
+      {
+        ignore: ['dist/**'],
+        testDirectories: ['tests', 'qa-tests'],
+        sourceDirectories: ['src'],
+        policy: {
+          patchAllow: ['tests/**', 'qa-tests/**'],
+          patchDeny: [],
+          protectedFiles: ['src/auth/**', 'src/billing/**'],
+          confidenceThresholds: {
+            suggest: 0.55,
+            apply: 0.85,
+            verify: 0.6,
+          },
+          branch: {
+            reportOnly: ['feature/*'],
+          },
+          testBudget: {
+            maxTests: 3,
+          },
+        },
+      },
+      null,
+      2
+    )}\n`,
+    'utf8'
+  );
+  await wait(3200);
+
+  const policyBlockedSuggestPatchResult = await client.callTool({
+    name: 'autoqa_suggest_patch',
+    arguments: {
+      repoPath: repoFixturePath,
+      issue: 'Login button selector drift. Prefer a role-based locator.',
+      apply: true,
+      sampleLimit: 5,
+    },
+  });
+  const policyBlockedSuggestPatchPayload = JSON.parse(extractText(policyBlockedSuggestPatchResult));
+  assert.equal(policyBlockedSuggestPatchPayload.applied, false);
+  assert.equal(policyBlockedSuggestPatchPayload.patch.dryRun, true);
+  assert.match(policyBlockedSuggestPatchPayload.reason, /Blocked by policy:/i);
+  assert.ok(Array.isArray(policyBlockedSuggestPatchPayload.blockedReasons));
+  assert.ok(policyBlockedSuggestPatchPayload.blockedReasons.length > 0);
+  assert.equal(policyBlockedSuggestPatchPayload.policy.mode, 'auto');
+  assert.equal(policyBlockedSuggestPatchPayload.policy.shouldApply, false);
+  assert.ok(Array.isArray(policyBlockedSuggestPatchPayload.policy.blockedReasons));
+
+  await writeFile(
+    join(repoFixturePath, 'autoqa.config.json'),
+    `${JSON.stringify(
+      {
+        ignore: ['dist/**'],
+        testDirectories: ['tests', 'qa-tests'],
+        sourceDirectories: ['src'],
+        policy: {
+          patchAllow: ['tests/**', 'qa-tests/**'],
+          patchDeny: [],
+          protectedFiles: ['src/auth/**', 'src/billing/**'],
+          confidenceThresholds: {
+            suggest: 0.55,
+            apply: 0.85,
+            verify: 0.6,
+          },
+          branch: {
+            reportOnly: ['main', 'release/*'],
+          },
+          testBudget: {
+            maxTests: 3,
+          },
+        },
+      },
+      null,
+      2
+    )}\n`,
+    'utf8'
+  );
+  await wait(3200);
+
+  const cliReportOnlySuggestPatchResult = await client.callTool({
+    name: 'autoqa_suggest_patch',
+    arguments: {
+      repoPath: repoFixturePath,
+      issue: 'Login button selector drift. Prefer a role-based locator.',
+      apply: true,
+      policyMode: 'report_only',
+      sampleLimit: 5,
+    },
+  });
+  const cliReportOnlySuggestPatchPayload = JSON.parse(extractText(cliReportOnlySuggestPatchResult));
+  assert.equal(cliReportOnlySuggestPatchPayload.applied, false);
+  assert.equal(cliReportOnlySuggestPatchPayload.patch.dryRun, true);
+  assert.match(cliReportOnlySuggestPatchPayload.reason, /Blocked by policy:/i);
+  assert.ok(cliReportOnlySuggestPatchPayload.blockedReasons.some((line) => /report_only/i.test(line)));
+  assert.equal(cliReportOnlySuggestPatchPayload.policy.mode, 'report_only');
+  assert.equal(cliReportOnlySuggestPatchPayload.policy.shouldApply, false);
+
+  const artifactSuggestPatchResult = await client.callTool({
+    name: 'autoqa_suggest_patch',
+    arguments: {
+      repoPath: repoFixturePath,
+      issue: 'Login button selector drift. Prefer a role-based locator.',
+      reportDir: 'test-results',
+      sampleLimit: 5,
+    },
+  });
+  const artifactSuggestPatchPayload = JSON.parse(extractText(artifactSuggestPatchResult));
+  assert.equal(artifactSuggestPatchPayload.targetFile, 'tests/login.spec.ts');
+  assert.ok(Array.isArray(artifactSuggestPatchPayload.evidenceUsed));
+  assert.ok(artifactSuggestPatchPayload.evidenceUsed.length > 0);
+  assert.equal(artifactSuggestPatchPayload.evidenceUsed[0].kind, 'selector_drift');
+  assert.match(artifactSuggestPatchPayload.reason, /Artifact evidence:/i);
+
+  const renameIssueSuggestPatchResult = await client.callTool({
+    name: 'autoqa_suggest_patch',
+    arguments: {
+      repoPath: repoFixturePath,
+      issue: 'Button text changed from "Login" to "Log in"; update affected locator/assertion.',
+      changedFiles: ['tests/login.spec.ts'],
+      sampleLimit: 5,
+    },
+  });
+  const renameIssueSuggestPatchPayload = JSON.parse(extractText(renameIssueSuggestPatchResult));
+  assert.equal(renameIssueSuggestPatchPayload.targetFile, 'tests/login.spec.ts');
+  assert.match(renameIssueSuggestPatchPayload.patch.findText, /locator|name: 'Login'/);
+  assert.match(renameIssueSuggestPatchPayload.patch.content, /getByRole|name: 'Log in'/);
 
   const impactAnalysisResult = await client.callTool({
     name: 'autoqa_impact_analysis',
@@ -222,7 +393,8 @@ try {
       sampleLimit: 5,
     },
   });
-  const impactPayload = JSON.parse(extractText(impactAnalysisResult));
+  const impactPayload = parseToolPayload(impactAnalysisResult, 'autoqa_impact_analysis');
+  assert.equal(impactPayload.changedFiles[0], 'src/login-button.tsx');
   assert.match(impactPayload.summary, /affected test target/i);
   assert.ok(Array.isArray(impactPayload.affectedTests));
   assert.equal(impactPayload.affectedTests[0].file, 'tests/login.spec.ts');
@@ -360,13 +532,29 @@ try {
       sampleLimit: 5,
     },
   });
-  const verifyPatchPayload = JSON.parse(extractText(verifyPatchResult));
+  const verifyPatchPayload = parseToolPayload(verifyPatchResult, 'autoqa_verify_patch');
   assert.equal(verifyPatchPayload.patch.applied, true);
   assert.equal(verifyPatchPayload.execution.status, 'passed');
   assert.equal(verifyPatchPayload.status, 'passed');
+  assert.equal(verifyPatchPayload.artifacts[0]?.label, 'verification_report');
+  assert.equal(verifyPatchPayload.artifacts[0]?.path, verifyPatchPayload.reportPath);
+  assert.ok(Array.isArray(verifyPatchPayload.evidenceUsed));
+  assert.equal(verifyPatchPayload.evidenceUsed.length, 0);
   const verificationReport = await readFile(verifyPatchPayload.reportPath, 'utf8');
   assert.match(verificationReport, /AutoQA Patch Verification/);
   assert.match(verificationReport, /Status: passed/);
+  assert.match(verificationReport, /## Evidence used/);
+  const memoryPath = join(repoFixturePath, '.autoqa', 'state', 'memory.json');
+  const memoryRaw = await readFile(memoryPath, 'utf8');
+  const memoryJson = JSON.parse(memoryRaw);
+  assert.equal(memoryJson.schemaVersion, 1);
+  assert.equal(typeof memoryJson.repoFingerprint, 'string');
+  assert.ok(Array.isArray(memoryJson.recentFailures));
+  assert.ok(memoryJson.recentFailures.length > 0);
+  assert.equal(memoryJson.recentFailures.at(-1).status, 'passed');
+  assert.ok(Array.isArray(memoryJson.acceptedPatches));
+  assert.ok(memoryJson.acceptedPatches.length > 0);
+  assert.equal(memoryJson.acceptedPatches.at(-1).targetFile, 'tests/login.spec.ts');
 
   await writeFile(
     join(repoFixturePath, 'src', 'app.tsx'),
@@ -411,9 +599,12 @@ try {
   });
   const workingTreeSummaryPayload = JSON.parse(extractText(workingTreeSummaryResult));
   assert.equal(workingTreeSummaryPayload.diffSource.mode, 'working_tree');
-  assert.match(workingTreeSummaryPayload.summary, /### AutoQA CI Summary/);
+  assert.match(workingTreeSummaryPayload.summary, /<!-- autoqa:pr-comment:v1 -->/);
+  assert.match(workingTreeSummaryPayload.summary, /<!-- autoqa:pr-comment:block:start -->/);
+  assert.match(workingTreeSummaryPayload.summary, /## AutoQA PR QA Report/);
   assert.match(workingTreeSummaryPayload.summary, /\*\*Mode:\*\* Working tree QA summary \(unstaged\)/);
   assert.match(workingTreeSummaryPayload.summary, /tests\/login\.spec\.ts/);
+  assert.match(workingTreeSummaryPayload.summary, /<!-- autoqa:pr-comment:block:end -->/);
   assert.ok(workingTreeSummaryPayload.changedFiles.includes('src/app.tsx'));
   assert.ok(workingTreeSummaryPayload.changedFiles.includes('src/profile-link.tsx'));
 
