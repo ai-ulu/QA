@@ -302,9 +302,13 @@ try {
   assert.match(policyBlockedSuggestPatchPayload.reason, /Blocked by policy:/i);
   assert.ok(Array.isArray(policyBlockedSuggestPatchPayload.blockedReasons));
   assert.ok(policyBlockedSuggestPatchPayload.blockedReasons.length > 0);
+  assert.ok(Array.isArray(policyBlockedSuggestPatchPayload.blockedReasonCodes));
+  assert.ok(policyBlockedSuggestPatchPayload.blockedReasonCodes.includes('branch_report_only'));
   assert.equal(policyBlockedSuggestPatchPayload.policy.mode, 'auto');
+  assert.equal(policyBlockedSuggestPatchPayload.policy.source, 'repo_config');
   assert.equal(policyBlockedSuggestPatchPayload.policy.shouldApply, false);
   assert.ok(Array.isArray(policyBlockedSuggestPatchPayload.policy.blockedReasons));
+  assert.ok(Array.isArray(policyBlockedSuggestPatchPayload.policy.blockedReasonCodes));
 
   await writeFile(
     join(repoFixturePath, 'autoqa.config.json'),
@@ -353,7 +357,101 @@ try {
   assert.match(cliReportOnlySuggestPatchPayload.reason, /Blocked by policy:/i);
   assert.ok(cliReportOnlySuggestPatchPayload.blockedReasons.some((line) => /report_only/i.test(line)));
   assert.equal(cliReportOnlySuggestPatchPayload.policy.mode, 'report_only');
+  assert.equal(cliReportOnlySuggestPatchPayload.policy.source, 'cli_override');
   assert.equal(cliReportOnlySuggestPatchPayload.policy.shouldApply, false);
+  assert.ok(cliReportOnlySuggestPatchPayload.blockedReasonCodes.includes('branch_report_only'));
+
+  await writeFile(
+    join(repoFixturePath, 'autoqa.config.json'),
+    `${JSON.stringify(
+      {
+        ignore: ['dist/**'],
+        testDirectories: ['tests', 'qa-tests'],
+        sourceDirectories: ['src'],
+        policy: {
+          patchAllow: ['tests/**', 'qa-tests/**'],
+          patchDeny: [],
+          protectedFiles: ['tests/**'],
+          confidenceThresholds: {
+            suggest: 0.55,
+            apply: 0.85,
+            verify: 0.6,
+          },
+          branch: {
+            reportOnly: [],
+          },
+          testBudget: {
+            maxTests: 3,
+          },
+        },
+      },
+      null,
+      2
+    )}\n`,
+    'utf8'
+  );
+  await wait(3200);
+
+  const protectedSuggestPatchResult = await client.callTool({
+    name: 'autoqa_suggest_patch',
+    arguments: {
+      repoPath: repoFixturePath,
+      issue: 'Login button selector drift. Prefer a role-based locator.',
+      apply: true,
+      sampleLimit: 5,
+    },
+  });
+  const protectedSuggestPatchPayload = JSON.parse(extractText(protectedSuggestPatchResult));
+  assert.equal(protectedSuggestPatchPayload.applied, false);
+  assert.ok(protectedSuggestPatchPayload.blockedReasonCodes.includes('protected_file'));
+  assert.equal(protectedSuggestPatchPayload.policy.source, 'repo_config');
+
+  await writeFile(
+    join(repoFixturePath, 'autoqa.config.json'),
+    `${JSON.stringify(
+      {
+        ignore: ['dist/**'],
+        testDirectories: ['tests', 'qa-tests'],
+        sourceDirectories: ['src'],
+        policy: {
+          patchAllow: ['tests/**', 'qa-tests/**'],
+          patchDeny: [],
+          protectedFiles: [],
+          confidenceThresholds: {
+            suggest: 0.55,
+            apply: 0.85,
+            verify: 0.6,
+          },
+          branch: {
+            reportOnly: [],
+          },
+          testBudget: {
+            maxTests: 3,
+          },
+        },
+      },
+      null,
+      2
+    )}\n`,
+    'utf8'
+  );
+  await wait(3200);
+
+  const thresholdSuggestPatchResult = await client.callTool({
+    name: 'autoqa_suggest_patch',
+    arguments: {
+      repoPath: repoFixturePath,
+      issue: 'Login button selector drift. Prefer a role-based locator.',
+      apply: true,
+      policyMode: 'enforce',
+      applyThresholdOverride: 0.99,
+      sampleLimit: 5,
+    },
+  });
+  const thresholdSuggestPatchPayload = JSON.parse(extractText(thresholdSuggestPatchResult));
+  assert.equal(thresholdSuggestPatchPayload.applied, false);
+  assert.equal(thresholdSuggestPatchPayload.policy.source, 'cli_override');
+  assert.ok(thresholdSuggestPatchPayload.blockedReasonCodes.includes('below_apply_threshold'));
 
   const artifactSuggestPatchResult = await client.callTool({
     name: 'autoqa_suggest_patch',
@@ -521,6 +619,8 @@ try {
   assert.equal(executeRunPlanPayload.executed, true);
   assert.equal(executeRunPlanPayload.status, 'failed');
   assert.ok(executeRunPlanPayload.tests.includes('tests/login.spec.ts'));
+  assert.equal(executeRunPlanPayload.policy.source, 'repo_config');
+  assert.equal(executeRunPlanPayload.policy.maxTestsApplied, 2);
 
   const verifyPatchResult = await client.callTool({
     name: 'autoqa_verify_patch',
@@ -540,10 +640,13 @@ try {
   assert.equal(verifyPatchPayload.artifacts[0]?.path, verifyPatchPayload.reportPath);
   assert.ok(Array.isArray(verifyPatchPayload.evidenceUsed));
   assert.equal(verifyPatchPayload.evidenceUsed.length, 0);
+  assert.equal(verifyPatchPayload.policy.source, 'repo_config');
+  assert.equal(verifyPatchPayload.policy.shouldVerify, true);
   const verificationReport = await readFile(verifyPatchPayload.reportPath, 'utf8');
   assert.match(verificationReport, /AutoQA Patch Verification/);
   assert.match(verificationReport, /Status: passed/);
   assert.match(verificationReport, /## Evidence used/);
+  assert.match(verificationReport, /## Policy/);
   const memoryPath = join(repoFixturePath, '.autoqa', 'state', 'memory.json');
   const memoryRaw = await readFile(memoryPath, 'utf8');
   const memoryJson = JSON.parse(memoryRaw);
@@ -604,9 +707,12 @@ try {
   assert.match(workingTreeSummaryPayload.summary, /## AutoQA PR QA Report/);
   assert.match(workingTreeSummaryPayload.summary, /\*\*Mode:\*\* Working tree QA summary \(unstaged\)/);
   assert.match(workingTreeSummaryPayload.summary, /tests\/login\.spec\.ts/);
+  assert.match(workingTreeSummaryPayload.summary, /<summary>Repo memory<\/summary>/);
   assert.match(workingTreeSummaryPayload.summary, /<!-- autoqa:pr-comment:block:end -->/);
   assert.ok(workingTreeSummaryPayload.changedFiles.includes('src/app.tsx'));
   assert.ok(workingTreeSummaryPayload.changedFiles.includes('src/profile-link.tsx'));
+  assert.ok(workingTreeSummaryPayload.memorySummary.failedRuns >= 0);
+  assert.ok(workingTreeSummaryPayload.memorySummary.acceptedPatches > 0);
 
   await execFileAsync('git', ['add', 'src/app.tsx', 'src/profile-link.tsx'], { cwd: repoFixturePath });
 
@@ -668,6 +774,25 @@ try {
   assert.equal(gatedSuggestPatchPayload.confidenceLevel, 'medium');
   assert.equal(gatedSuggestPatchPayload.patch.dryRun, true);
   assert.match(gatedSuggestPatchPayload.reason, /downgraded to dry-run/i);
+
+  await execFileAsync('git', ['add', '.'], { cwd: repoFixturePath });
+  await execFileAsync('git', ['commit', '-m', 'clean working tree for no-change summary'], {
+    cwd: repoFixturePath,
+  });
+
+  const noChangesSummaryResult = await client.callTool({
+    name: 'autoqa_ci_summary',
+    arguments: {
+      repoPath: repoFixturePath,
+      workingTree: true,
+      format: 'plain',
+      sampleLimit: 5,
+    },
+  });
+  const noChangesSummaryPayload = JSON.parse(extractText(noChangesSummaryResult));
+  assert.equal(noChangesSummaryPayload.status, 'no_changes');
+  assert.match(noChangesSummaryPayload.summary, /No changes detected/i);
+  assert.equal(noChangesSummaryPayload.changedFiles.length, 0);
 
   console.log('MCP smoke test passed');
 } finally {

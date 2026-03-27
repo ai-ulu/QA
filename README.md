@@ -56,6 +56,14 @@ node packages/mcp-server/scripts/ci-impact.mjs --repo . --auto-base --format git
 
 `pnpm onboard:mcp` performs one-command local onboarding and writes MCP config for Codex, VS Code, Cursor, and Claude Desktop. Use `--dry-run` to preview.
 
+Operator guide:
+
+- [5-minute operator guide](docs/operator-guide.md)
+
+Required CI workflow:
+
+- [AutoQA Quality Gates](.github/workflows/autoqa-quality-gates.yml)
+
 ## MCP Surface
 
 Primary tools:
@@ -105,6 +113,11 @@ Policy aktifken:
 - Block nedeni ciktiya acik metin olarak yazilir (`Blocked by policy`).
 - `autoqa_suggest_patch` sonucu `blockedReasons` alanini da verir.
 - `autoqa_suggest_patch` sonucu ayrica structured `policy` alani verir (`mode`, `applyThreshold`, `shouldApply`, `blockedReasons`).
+- `autoqa_suggest_patch`, `autoqa_execute_run_plan`, `autoqa_verify_patch` kararlarinda `policy.source` alanini verir:
+  - `default`
+  - `repo_config`
+  - `cli_override`
+- `autoqa_ci_summary` clean diff durumlarinda `no_changes` status'u ile graceful ozet doner.
 - CLI override ile `policyMode: report_only|enforce|auto` secilebilir.
 
 ## Scope

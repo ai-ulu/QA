@@ -4,51 +4,66 @@ Bu dosya aktif uygulama planidir.
 
 Kaynak backlog:
 
+- `CURRENT_STATUS_AND_NEXT_SPRINT.md`
 - `TASKS_V2.md`
 
 ## Current Focus
 
-V2 closeout ve ship hazirligi.
+V2 hardening sprint:
+
+- structured policy diagnostics
+- clean-diff graceful CI behavior
+- memory visibility
+- required quality gates
+- operator docs
 
 ## Spec
 
 Hedef:
-V2 kapsamindaki PR-native + artifact-aware + memory + policy katmanlarini tek gate ile dogrulayip ship-ready checklist'e gecmek.
+V2'yi broad rollout oncesi daha guvenilir ve daha okunabilir hale getirmek.
 
 Basari kosulu:
 
-- `pnpm run v2:gate` green
-- `pnpm test` green
-- `pnpm build` green
-- docs tarafinda policy + memory + gate komutlari yazili
+- policy kararlarinda stable reason code + precedence source gorunur
+- clean diff / no-change durumunda `ci_summary` ve PR bot hard fail olmaz
+- CI summary icinde compact memory sinyali gorunur
+- GitHub workflow tarafinda required quality gate akisi vardir
+- operator icin kisa kullanim rehberi yazilidir
 
 ## Plan
 
-1. `[x]` Epic 1: PR-native comment upsert bot
-2. `[x]` Epic 2: artifact-aware repair
-3. `[x]` Epic 3: repo memory layer
-4. `[x]` Epic 4: policy engine enforcement
-5. `[x]` Policy precedence (`policyMode`) + structured policy output
-6. `[x]` V2 milestone gate script (`pnpm v2:gate`)
-7. `[x]` Final local verification (`pnpm test`, `pnpm build`, `pnpm v2:gate`)
+1. `[x]` Policy output contract'ina structured reason code ve precedence source ekle.
+2. `[x]` `execute_run_plan` ve `verify_patch` ciktilarinda policy trace gorunur hale getir.
+3. `[x]` `ci_summary` icine compact memory summary ekle.
+4. `[x]` Clean-diff durumunda graceful `no_changes` summary don.
+5. `[x]` Smoke test fixture'larina protected-file ve apply-threshold policy edge case'leri ekle.
+6. `[x]` Required quality gate GitHub workflow'u ekle.
+7. `[x]` 5 dakikalik operator guide yaz.
+8. `[x]` `pnpm test`, `pnpm build`, `pnpm v2:gate` ile dogrula.
 
 ## Verification
 
+- Calistirilacak:
+  - `pnpm test`
+  - `pnpm build`
+  - `pnpm run v2:gate`
+- Beklenen kanit:
+  - smoke icinde yeni policy assert'leri
+  - clean-diff `no_changes` summary assert'i
+  - memory summary assert'i
+  - workflow ve docs dosyalarinin repoda olmasi
 - Gecen komutlar:
   - `pnpm test`
   - `pnpm build`
   - `pnpm run v2:gate`
-- Kanit:
-  - smoke: `MCP smoke test passed`
-  - gate: `all checks passed`
-  - gate adimlari: build + smoke + ci-summary + pr-comment dry-run
 
 ## Review
 
 Durum:
 
-- V2 teknik kapsam tamamlandi ve local gate ile dogrulandi.
-- Sonraki is artik delivery operasyonu:
-  - release tag/notes
-  - npm publish (istenirse)
-  - GitHub workflow branch policy netlestirme
+- Hardening sprint tamamlandi ve kanitlandi.
+- V2 artik broad rollout icin daha guvenli:
+  - required quality gates var
+  - clean-diff graceful summary var
+  - structured policy diagnostics var
+  - operator guide var

@@ -93,13 +93,23 @@ Behavior:
 - `autoqa_suggest_patch` ciktilarinda `blockedReasons` listesi yer alir.
 - `autoqa_suggest_patch` ciktilarinda `policy` objesi de doner:
   - `mode`
+  - `source`
   - `applyThreshold`
   - `shouldApply`
   - `blockedReasons`
+  - `blockedReasonCodes`
 - CLI override:
   - `policyMode: "report_only"` -> repo config ne olursa olsun apply kapatilir.
   - `policyMode: "enforce"` -> policy kurallari zorunlu uygulanir.
   - `policyMode: "auto"` -> varsayilan repo policy davranisi.
+
+Clean diff handling:
+
+- `autoqa_ci_summary` selected flows now return `status: "no_changes"` instead of hard fail when the selected diff scope is empty.
+
+Operator guide:
+
+- See [docs/operator-guide.md](../../docs/operator-guide.md)
 
 V2 milestone gate:
 
@@ -109,6 +119,10 @@ V2 milestone gate:
   - test (includes smoke)
   - `ci-impact` github summary generation
   - `pr-bot` dry-run summary generation
+
+GitHub Actions:
+
+- Required quality gates workflow is available at `.github/workflows/autoqa-quality-gates.yml`.
 
 Onboarding shortcut:
 
