@@ -1,73 +1,56 @@
 # AutoQA Current Status and Next Sprint
 
-Date: 2026-03-27
+Date: 2026-03-28
 
 ## Current Status
 
-AutoQA is now in a usable V2 state for MCP-first QA maintenance workflows.
+AutoQA V2 is now in a hardened, rollout-capable state for MCP-first Playwright maintenance workflows.
 
 Shipped and merged:
 
-- PR-native QA reporting with stable comment markers and upsert behavior.
-- Artifact-aware patch suggestion (`reportDir`, `artifactPaths`, `evidenceUsed`).
-- Repo memory layer (`.autoqa/state/memory.json`) with inspect/reset utilities.
+- PR-native QA reporting with stable marker-based comment upsert.
+- Artifact-aware patch suggestion and verification (`reportDir`, `artifactPaths`, `evidenceUsed`).
+- Repo-local memory layer with inspect/reset utilities.
 - Policy engine with safe-by-default controls:
   - patch allow/deny/protected patterns
   - confidence thresholds
   - branch `report_only`
   - test budget limits
-- Structured policy output in patch suggestions (`policy` object).
-- Milestone gate command (`pnpm v2:gate`) and local verification flow.
+- Structured policy diagnostics:
+  - `policy.source`
+  - `blockedReasonCodes`
+  - `blockedReasons`
+- Graceful clean-diff handling in selected CI flows via `status: "no_changes"`.
+- Required quality-gate workflow for GitHub Actions.
+- 5-minute operator guide.
 
 Operational status:
 
-- Local validation is green (`build`, `test`, `v2:gate`).
+- `pnpm build` is green.
+- `pnpm test` is green.
+- `pnpm v2:gate` is green.
 - PR dry-run flow validated against a real external repo clone.
-- Product is practical for internal usage and early power users.
-
-## Next Sprint (Execution-First)
-
-Goal:
-Increase trust and adoption by making outputs more deterministic, review-friendly, and CI-native.
-
-1. Add structured blocked reason contract across all tools.
-   - Standardize `blockedReasons` style in suggest/verify/execute.
-   - Include stable reason codes (not only free text).
-
-2. Add policy precedence visibility in outputs.
-   - Return which layer decided behavior: `cli_override | repo_config | default`.
-   - Improve debugging for report-only and confidence blocks.
-
-3. Add memory observability summary in CI output.
-   - Include compact memory hints: flaky test counts, recent failure signals.
-   - Keep output concise for PR readability.
-
-4. Harden CI behavior for clean-diff repos.
-   - Graceful "no changes" summary mode instead of hard error in selected flows.
-   - Preserve fail-open semantics where appropriate.
-
-5. Add one GitHub Actions workflow for mandatory quality gates.
-   - Required checks:
-     - `pnpm build`
-     - `pnpm test`
-     - optional `pnpm v2:gate` in pull_request context
-
-6. Add small acceptance fixtures for policy edge cases.
-   - protected file block
-   - apply threshold block
-   - report-only override by CLI
-
-7. Publish a short "5-minute operator guide".
-   - Single page:
-     - onboarding
-     - one dry-run flow
-     - one verify flow
-     - troubleshooting section
 
 ## Release Readiness Summary
 
 Current recommendation:
 
 - Internal rollout: ready
-- Early external power users: ready with caution
-- Broad production rollout: after next sprint hardening items (CI-required checks + structured reason codes)
+- Early external power users: ready
+- Broad rollout for MCP-first Playwright repos: ready
+
+Residual risk:
+
+- Real-world repo diversity can still expose new heuristics gaps.
+- The product is intentionally narrow; teams outside the Playwright/MCP wedge will not get the same value.
+
+## Next Sprint
+
+Goal:
+Shift from hardening to adoption and signal quality.
+
+1. Add stable reason codes outside policy-only surfaces where useful.
+2. Improve memory-derived hints in CI comment output.
+3. Add more repo fixtures from real-world layouts.
+4. Add lightweight adoption docs/examples for AI builders and QA operators.
+5. Monitor first real repos and tighten heuristics from observed failures.

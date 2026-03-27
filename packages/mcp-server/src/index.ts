@@ -93,6 +93,42 @@ type RepoMemoryAdapter = {
   write(repoPath: string, memoryPath: string, memory: AutoQaRepoMemory): Promise<void>;
 };
 
+type PolicyMode = 'auto' | 'report_only' | 'enforce';
+type PolicySource = 'default' | 'repo_config' | 'cli_override';
+type PolicyReasonCode =
+  | 'not_in_allow_list'
+  | 'matched_deny_rule'
+  | 'protected_file'
+  | 'branch_report_only'
+  | 'below_apply_threshold'
+  | 'below_verify_threshold'
+  | 'test_budget_capped';
+
+type PolicyTrace = {
+  mode: PolicyMode;
+  source: PolicySource;
+  applyThreshold: number;
+  verifyThreshold?: number;
+  shouldApply?: boolean;
+  shouldVerify?: boolean;
+  maxTestsRequested?: number;
+  maxTestsApplied?: number;
+  blockedReasons: string[];
+  blockedReasonCodes: PolicyReasonCode[];
+};
+
+type RepoMemorySummary = {
+  knownFlakyTests: number;
+  recentFailures: number;
+  failedRuns: number;
+  acceptedPatches: number;
+  rejectedPatches: number;
+  topFailingTests: Array<{
+    file: string;
+    count: number;
+  }>;
+};
+
 const AUTOQA_PR_COMMENT_MARKER = '<!-- autoqa:pr-comment:v1 -->';
 const AUTOQA_PR_COMMENT_BLOCK_START = '<!-- autoqa:pr-comment:block:start -->';
 const AUTOQA_PR_COMMENT_BLOCK_END = '<!-- autoqa:pr-comment:block:end -->';
@@ -146,12 +182,8 @@ type SuggestedPatch = {
   applyResult?: PatchFileResult;
   evidenceUsed: ArtifactEvidence[];
   blockedReasons: string[];
-  policy: {
-    mode: PolicyMode;
-    applyThreshold: number;
-    shouldApply: boolean;
-    blockedReasons: string[];
-  };
+  blockedReasonCodes: PolicyReasonCode[];
+  policy: PolicyTrace;
 };
 
 type SemanticReplacement = {
@@ -195,6 +227,7 @@ type PullRequestSummary = {
 
 type CiSummary = {
   repoPath: string;
+  status: 'completed' | 'no_changes';
   format: 'markdown' | 'github' | 'plain';
   diffSource: {
     mode: 'manual' | 'git' | 'working_tree';
@@ -208,6 +241,7 @@ type CiSummary = {
   affectedTests: string[];
   suggestedRunTargets: string[];
   changedFiles: string[];
+  memorySummary: RepoMemorySummary;
 };
 
 type TargetedRunPlan = {
@@ -239,6 +273,9 @@ type RunPlanExecution = {
   status: 'passed' | 'failed' | 'skipped';
   stdout: string;
   stderr: string;
+  blockedReasons: string[];
+  blockedReasonCodes: PolicyReasonCode[];
+  policy: PolicyTrace;
 };
 
 type PatchVerification = {
@@ -249,6 +286,9 @@ type PatchVerification = {
   reportPath: string;
   status: 'passed' | 'failed' | 'skipped';
   evidenceUsed: ArtifactEvidence[];
+  blockedReasons: string[];
+  blockedReasonCodes: PolicyReasonCode[];
+  policy: PolicyTrace;
 };
 
 type RepoSettings = {
@@ -256,6 +296,7 @@ type RepoSettings = {
   testDirectories: string[];
   sourceDirectories: string[];
   policy: RepoPolicy;
+  policySource: Exclude<PolicySource, 'cli_override'>;
 };
 
 type RepoPolicy = {
@@ -274,8 +315,6 @@ type RepoPolicy = {
     maxTests: number;
   };
 };
-
-type PolicyMode = 'auto' | 'report_only' | 'enforce';
 
 type DiffSignal = {
   file: string;
@@ -1020,6 +1059,9 @@ async function suggestPatch(
   const scan = await scanRepo(repoPath, Math.max(sampleLimit, 30));
   const settings = await loadRepoSettings(scan.repoPath);
   const branchName = await readCurrentBranch(scan.repoPath);
+  const policySource = resolvePolicySource(settings, policyMode, {
+    applyThresholdOverride,
+  });
   const memory = (await readRepoMemory(scan.repoPath)).memory;
   const issueLower = issue.toLowerCase();
   const artifactEvidence = await collectArtifactEvidence(scan.repoPath, reportDir, artifactPaths);
@@ -1141,11 +1183,14 @@ async function suggestPatch(
       applyResult: shouldApply ? patchPreview : undefined,
       evidenceUsed: artifactEvidence,
       blockedReasons: policyDecision.blockedReasons,
+      blockedReasonCodes: policyDecision.blockedReasonCodes,
       policy: {
         mode: policyDecision.mode,
+        source: policySource,
         applyThreshold: policyDecision.applyThreshold,
         shouldApply: policyDecision.shouldApply,
         blockedReasons: policyDecision.blockedReasons,
+        blockedReasonCodes: policyDecision.blockedReasonCodes,
       },
     };
   }
@@ -1473,6 +1518,94 @@ async function buildTargetedRunPlan(
   };
 }
 
+function buildNoChangesDiffSource(
+  baseRef: string | undefined,
+  headRef: string | undefined,
+  workingTree: boolean | undefined,
+  staged: boolean | undefined,
+  autoBase: boolean | undefined
+): CiSummary['diffSource'] {
+  if (workingTree) {
+    return {
+      mode: 'working_tree',
+      staged: Boolean(staged),
+    };
+  }
+
+  return {
+    mode: 'git',
+    ...(baseRef ? { baseRef } : {}),
+    ...(headRef ? { headRef } : {}),
+    ...(autoBase ? { autoBase: true } : {}),
+  };
+}
+
+function buildNoChangesSummaryLines(
+  format: 'markdown' | 'github' | 'plain',
+  header: string,
+  memorySummary: RepoMemorySummary
+) {
+  const memoryLines = memorySummary.topFailingTests.length
+    ? memorySummary.topFailingTests.map((entry) => `- \`${entry.file}\` (${entry.count})`)
+    : ['- none'];
+
+  if (format === 'plain') {
+    return [
+      header,
+      'No changes detected for the selected diff scope.',
+      `Memory: ${memorySummary.failedRuns} failed run(s), ${memorySummary.acceptedPatches} accepted patch(es), ${memorySummary.rejectedPatches} rejected patch(es)`,
+    ];
+  }
+
+  if (format === 'github') {
+    return [
+      AUTOQA_PR_COMMENT_MARKER,
+      AUTOQA_PR_COMMENT_BLOCK_START,
+      '',
+      '## AutoQA PR QA Report',
+      '',
+      `**Mode:** ${header}`,
+      '**Confidence:** low',
+      '**Highest-risk test:** none',
+      '**Run first:** none',
+      '**Auto-fix:** none',
+      '',
+      '<details>',
+      '<summary>No changes</summary>',
+      '',
+      '- No changes detected for the selected diff scope.',
+      '',
+      '</details>',
+      '',
+      '<details>',
+      '<summary>Repo memory</summary>',
+      '',
+      `- Failed runs: ${memorySummary.failedRuns}`,
+      `- Accepted patches: ${memorySummary.acceptedPatches}`,
+      `- Rejected patches: ${memorySummary.rejectedPatches}`,
+      `- Known flaky tests: ${memorySummary.knownFlakyTests}`,
+      ...memoryLines,
+      '',
+      '</details>',
+      '',
+      AUTOQA_PR_COMMENT_BLOCK_END,
+    ];
+  }
+
+  return [
+    `## ${header}`,
+    '',
+    '- No changes detected for the selected diff scope.',
+    '',
+    '### Repo memory',
+    `- Failed runs: ${memorySummary.failedRuns}`,
+    `- Accepted patches: ${memorySummary.acceptedPatches}`,
+    `- Rejected patches: ${memorySummary.rejectedPatches}`,
+    `- Known flaky tests: ${memorySummary.knownFlakyTests}`,
+    ...memoryLines,
+  ];
+}
+
 async function buildCiSummary(
   repoPath: string,
   changedFiles: string[] | undefined,
@@ -1484,26 +1617,55 @@ async function buildCiSummary(
   format: 'markdown' | 'github' | 'plain',
   sampleLimit: number
 ): Promise<CiSummary> {
-  const analysis = await analyzeImpact(
-    repoPath,
-    changedFiles,
-    baseRef,
-    headRef,
-    workingTree,
-    staged,
-    autoBase,
-    sampleLimit
-  );
-  const runPlan = await buildTargetedRunPlan(
-    repoPath,
-    changedFiles,
-    baseRef,
-    headRef,
-    workingTree,
-    staged,
-    autoBase,
-    sampleLimit
-  );
+  const resolvedRepoPath = resolve(repoPath);
+  const memory = (await readRepoMemory(resolvedRepoPath)).memory;
+  const memorySummary = buildRepoMemorySummary(memory);
+  let analysis: ImpactAnalysisResult;
+  let runPlan: TargetedRunPlan;
+
+  try {
+    analysis = await analyzeImpact(
+      repoPath,
+      changedFiles,
+      baseRef,
+      headRef,
+      workingTree,
+      staged,
+      autoBase,
+      sampleLimit
+    );
+    runPlan = await buildTargetedRunPlan(
+      repoPath,
+      changedFiles,
+      baseRef,
+      headRef,
+      workingTree,
+      staged,
+      autoBase,
+      sampleLimit
+    );
+  } catch (error) {
+    if (!isNoDiffError(error)) {
+      throw error;
+    }
+
+    const diffSource = buildNoChangesDiffSource(baseRef, headRef, workingTree, staged, autoBase);
+    const header =
+      diffSource.mode === 'working_tree'
+        ? `Working tree QA summary (${diffSource.staged ? 'staged' : 'unstaged'})`
+        : 'QA summary';
+    return {
+      repoPath: resolvedRepoPath,
+      status: 'no_changes',
+      format,
+      diffSource,
+      summary: buildNoChangesSummaryLines(format, header, memorySummary).join('\n'),
+      affectedTests: [],
+      suggestedRunTargets: [],
+      changedFiles: [],
+      memorySummary,
+    };
+  }
 
   const highestRisk = analysis.affectedTests[0]?.file ?? 'manual-review';
   const highestPriority =
@@ -1523,6 +1685,7 @@ async function buildCiSummary(
       `Highest-risk test: ${highestRisk}`,
       `Run first: ${highestPriority.join(', ') || 'manual review'}`,
       `Auto-fix: ${autoFix ? `${autoFix.targetFile} - ${autoFix.reason}` : 'none'}`,
+      `Memory: ${memorySummary.failedRuns} failed run(s), ${memorySummary.acceptedPatches} accepted patch(es)`,
     ];
   } else if (format === 'github') {
     lines = [
@@ -1554,6 +1717,19 @@ async function buildCiSummary(
       '</details>',
       '',
       '<details>',
+      '<summary>Repo memory</summary>',
+      '',
+      `- Failed runs: ${memorySummary.failedRuns}`,
+      `- Accepted patches: ${memorySummary.acceptedPatches}`,
+      `- Rejected patches: ${memorySummary.rejectedPatches}`,
+      `- Known flaky tests: ${memorySummary.knownFlakyTests}`,
+      ...(memorySummary.topFailingTests.length
+        ? memorySummary.topFailingTests.map((entry) => `- \`${entry.file}\` (${entry.count})`)
+        : ['- none']),
+      '',
+      '</details>',
+      '',
+      '<details>',
       '<summary>Notes</summary>',
       '',
       ...(runPlan.warnings.length
@@ -1573,6 +1749,7 @@ async function buildCiSummary(
       `- Highest-risk test: ${highestRisk}`,
       `- Run first: ${highestPriority.join(', ') || 'manual review'}`,
       `- Auto-fix: ${autoFix ? `${autoFix.targetFile} (${Math.round(autoFix.confidence * 100)}%)` : 'none'}`,
+      `- Memory: ${memorySummary.failedRuns} failed run(s), ${memorySummary.acceptedPatches} accepted patch(es)`,
       '',
       '### Suggested run targets',
       ...(analysis.suggestedRunTargets.length
@@ -1588,12 +1765,14 @@ async function buildCiSummary(
 
   return {
     repoPath: analysis.repoPath,
+    status: 'completed',
     format,
     diffSource: analysis.diffSource,
     summary: lines.join('\n'),
     affectedTests: analysis.affectedTests.map((entry) => entry.file),
     suggestedRunTargets: analysis.suggestedRunTargets,
     changedFiles: analysis.changedFiles,
+    memorySummary,
   };
 }
 
@@ -1610,6 +1789,7 @@ async function executeRunPlan(
   sampleLimit: number
 ): Promise<RunPlanExecution> {
   const settings = await loadRepoSettings(repoPath);
+  const policySource = resolvePolicySource(settings, policyMode);
   const runPlan = await buildTargetedRunPlan(
     repoPath,
     changedFiles,
@@ -1630,13 +1810,25 @@ async function executeRunPlan(
     0,
     Math.min(maxTests, policyCap)
   );
+  const policyTrace: PolicyTrace = {
+    mode: policyMode,
+    source: policySource,
+    applyThreshold: settings.policy.confidenceThresholds.apply,
+    verifyThreshold: settings.policy.confidenceThresholds.verify,
+    maxTestsRequested: maxTests,
+    maxTestsApplied: Math.min(maxTests, policyCap),
+    blockedReasons:
+      maxTests > policyCap ? [`test budget capped requested ${maxTests} -> ${policyCap}`] : [],
+    blockedReasonCodes: maxTests > policyCap ? ['test_budget_capped'] : [],
+  };
 
-  return executePlaywrightTests(repoPath, selectedTests);
+  return executePlaywrightTests(repoPath, selectedTests, policyTrace);
 }
 
 async function executePlaywrightTests(
   repoPath: string,
-  selectedTests: string[]
+  selectedTests: string[],
+  policy: PolicyTrace
 ): Promise<RunPlanExecution> {
   if (!selectedTests.length) {
     return {
@@ -1648,6 +1840,9 @@ async function executePlaywrightTests(
       status: 'skipped',
       stdout: '',
       stderr: 'No tests selected by targeted run plan.',
+      blockedReasons: policy.blockedReasons,
+      blockedReasonCodes: policy.blockedReasonCodes,
+      policy,
     };
   }
 
@@ -1679,6 +1874,9 @@ async function executePlaywrightTests(
       status: 'passed',
       stdout,
       stderr,
+      blockedReasons: policy.blockedReasons,
+      blockedReasonCodes: policy.blockedReasonCodes,
+      policy,
     };
   } catch (error) {
     const executionError = error as NodeJS.ErrnoException & {
@@ -1696,6 +1894,9 @@ async function executePlaywrightTests(
       status: 'failed',
       stdout: executionError.stdout ?? '',
       stderr: executionError.stderr ?? executionError.message,
+      blockedReasons: policy.blockedReasons,
+      blockedReasonCodes: policy.blockedReasonCodes,
+      policy,
     };
   }
 }
@@ -1718,6 +1919,10 @@ async function verifyPatch(
   verifyThresholdOverride?: number
 ): Promise<PatchVerification> {
   const settings = await loadRepoSettings(repoPath);
+  const policySource = resolvePolicySource(settings, policyMode, {
+    applyThresholdOverride,
+    verifyThresholdOverride,
+  });
   const patch = await suggestPatch(
     repoPath,
     issue,
@@ -1760,9 +1965,37 @@ async function verifyPatch(
         )
       : 0;
   const verifyAllowed = patchConfidence >= verifyThreshold;
+  const verifyBlockedReasons = [...patch.blockedReasons];
+  const verifyBlockedReasonCodes = [...patch.blockedReasonCodes];
+  if (maxTests > policyCappedMaxTests) {
+    verifyBlockedReasons.push(`test budget capped requested ${maxTests} -> ${policyCappedMaxTests}`);
+    verifyBlockedReasonCodes.push('test_budget_capped');
+  }
+  if (patch.applied && !verifyAllowed) {
+    verifyBlockedReasons.push(
+      `confidence ${patchConfidence.toFixed(2)} below verify threshold ${verifyThreshold.toFixed(2)}`
+    );
+    verifyBlockedReasonCodes.push('below_verify_threshold');
+  }
+  const verifyPolicyTrace: PolicyTrace = {
+    mode: policyMode,
+    source: policySource,
+    applyThreshold: patch.policy.applyThreshold,
+    verifyThreshold,
+    shouldApply: patch.applied,
+    shouldVerify: patch.applied && verifyAllowed,
+    maxTestsRequested: maxTests,
+    maxTestsApplied: effectiveMaxTests,
+    blockedReasons: dedupeStrings(verifyBlockedReasons),
+    blockedReasonCodes: dedupeStrings(verifyBlockedReasonCodes) as PolicyReasonCode[],
+  };
   const execution = patch.applied
     ? verifyAllowed
-      ? await executePlaywrightTests(repoPath, [patch.targetFile].slice(0, effectiveMaxTests))
+      ? await executePlaywrightTests(
+          repoPath,
+          [patch.targetFile].slice(0, effectiveMaxTests),
+          verifyPolicyTrace
+        )
       : {
           repoPath: resolve(repoPath),
           command: [],
@@ -1771,7 +2004,10 @@ async function verifyPatch(
           exitCode: 0,
           status: 'skipped' as const,
           stdout: '',
-          stderr: `Verify execution skipped by policy: confidence ${patchConfidence.toFixed(2)} below verify threshold ${settings.policy.confidenceThresholds.verify.toFixed(2)}.`,
+          stderr: `Verify execution skipped by policy: confidence ${patchConfidence.toFixed(2)} below verify threshold ${verifyThreshold.toFixed(2)}.`,
+          blockedReasons: verifyPolicyTrace.blockedReasons,
+          blockedReasonCodes: verifyPolicyTrace.blockedReasonCodes,
+          policy: verifyPolicyTrace,
         }
     : {
         repoPath: resolve(repoPath),
@@ -1782,6 +2018,9 @@ async function verifyPatch(
         status: 'skipped' as const,
         stdout: '',
         stderr: 'Patch was not applied (confidence threshold or policy block).',
+        blockedReasons: verifyPolicyTrace.blockedReasons,
+        blockedReasonCodes: verifyPolicyTrace.blockedReasonCodes,
+        policy: verifyPolicyTrace,
       };
 
   const verificationStatus =
@@ -1798,6 +2037,9 @@ async function verifyPatch(
     execution,
     status: verificationStatus,
     evidenceUsed: patch.evidenceUsed,
+    blockedReasons: verifyPolicyTrace.blockedReasons,
+    blockedReasonCodes: verifyPolicyTrace.blockedReasonCodes,
+    policy: verifyPolicyTrace,
   });
 
   await writeRepoMemoryAfterVerification(repoPath, issue, {
@@ -1807,6 +2049,9 @@ async function verifyPatch(
     reportPath: report.path,
     status: verificationStatus,
     evidenceUsed: patch.evidenceUsed,
+    blockedReasons: verifyPolicyTrace.blockedReasons,
+    blockedReasonCodes: verifyPolicyTrace.blockedReasonCodes,
+    policy: verifyPolicyTrace,
   }).catch((error) => {
     console.error(
       `[autoqa][memory] failed to persist verification memory: ${
@@ -1823,6 +2068,9 @@ async function verifyPatch(
     reportPath: report.path,
     status: verificationStatus,
     evidenceUsed: patch.evidenceUsed,
+    blockedReasons: verifyPolicyTrace.blockedReasons,
+    blockedReasonCodes: verifyPolicyTrace.blockedReasonCodes,
+    policy: verifyPolicyTrace,
   };
 }
 
@@ -1855,6 +2103,19 @@ async function writeVerificationReport(
           (item) => `- ${item.kind} (${item.source}) [${item.path}]: ${item.snippet}`
         )
       : ['- none']),
+    '',
+    '## Policy',
+    '',
+    `- mode: ${payload.policy.mode}`,
+    `- source: ${payload.policy.source}`,
+    `- apply threshold: ${payload.policy.applyThreshold.toFixed(2)}`,
+    `- verify threshold: ${payload.policy.verifyThreshold?.toFixed(2) ?? 'n/a'}`,
+    `- should apply: ${payload.policy.shouldApply ? 'yes' : 'no'}`,
+    `- should verify: ${payload.policy.shouldVerify ? 'yes' : 'no'}`,
+    `- max tests: ${payload.policy.maxTestsApplied ?? 0}/${payload.policy.maxTestsRequested ?? 0}`,
+    ...(payload.policy.blockedReasons.length
+      ? payload.policy.blockedReasons.map((reason) => `- blocked: ${reason}`)
+      : ['- blocked: none']),
     '',
     '## Run plan',
     '',
@@ -2915,6 +3176,52 @@ function createDefaultPolicy(): RepoPolicy {
   };
 }
 
+function resolvePolicySource(
+  settings: RepoSettings,
+  policyMode: PolicyMode,
+  overrides: { applyThresholdOverride?: number; verifyThresholdOverride?: number } = {}
+): PolicySource {
+  if (
+    policyMode !== 'auto' ||
+    typeof overrides.applyThresholdOverride === 'number' ||
+    typeof overrides.verifyThresholdOverride === 'number'
+  ) {
+    return 'cli_override';
+  }
+
+  return settings.policySource;
+}
+
+function buildRepoMemorySummary(memory: AutoQaRepoMemory): RepoMemorySummary {
+  const failingCounts = new Map<string, number>();
+  const failedRuns = memory.recentFailures.filter((entry) => entry.status === 'failed');
+
+  for (const failure of failedRuns) {
+    for (const testFile of failure.tests) {
+      failingCounts.set(testFile, (failingCounts.get(testFile) ?? 0) + 1);
+    }
+  }
+
+  return {
+    knownFlakyTests: memory.knownFlakyTests.length,
+    recentFailures: memory.recentFailures.length,
+    failedRuns: failedRuns.length,
+    acceptedPatches: memory.acceptedPatches.length,
+    rejectedPatches: memory.rejectedPatches.length,
+    topFailingTests: Array.from(failingCounts.entries())
+      .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
+      .slice(0, 3)
+      .map(([file, count]) => ({ file, count })),
+  };
+}
+
+function isNoDiffError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  return /No changed files|No unstaged working tree changes found|No staged working tree changes found|No changed files available for analysis/i.test(
+    message
+  );
+}
+
 function matchesGlobLike(inputPath: string, pattern: string) {
   const normalizedPath = inputPath.split(sep).join('/').toLowerCase();
   const normalizedPattern = pattern.split(sep).join('/').toLowerCase().trim();
@@ -2957,6 +3264,7 @@ function evaluatePatchPolicy(
   applyThresholdOverride?: number
 ) {
   const blockedReasons: string[] = [];
+  const blockedReasonCodes: PolicyReasonCode[] = [];
   const normalizedTarget = targetFile.split(sep).join('/');
   const allowHit =
     policy.patchAllow.length === 0 ||
@@ -2971,26 +3279,36 @@ function evaluatePatchPolicy(
 
   if (!allowHit) {
     blockedReasons.push(`target file not in patch allow list (${normalizedTarget})`);
+    blockedReasonCodes.push('not_in_allow_list');
   }
   if (denyHit) {
     blockedReasons.push(`target file matched patch deny rule (${normalizedTarget})`);
+    blockedReasonCodes.push('matched_deny_rule');
   }
   if (protectedHit) {
     blockedReasons.push(`target file matched protected file rule (${normalizedTarget})`);
+    blockedReasonCodes.push('protected_file');
   }
   if (reportOnly) {
-    blockedReasons.push(`branch ${branchName} is configured as report_only`);
+    blockedReasons.push(
+      policyMode === 'report_only'
+        ? 'CLI policyMode=report_only disabled apply'
+        : `branch ${branchName} is configured as report_only`
+    );
+    blockedReasonCodes.push('branch_report_only');
   }
   if (requestedApply && confidence < applyThreshold) {
     blockedReasons.push(
       `confidence ${confidence.toFixed(2)} below apply threshold ${applyThreshold.toFixed(2)}`
     );
+    blockedReasonCodes.push('below_apply_threshold');
   }
 
   return {
     mode: policyMode,
     applyThreshold,
     blockedReasons,
+    blockedReasonCodes,
     shouldApply: requestedApply && blockedReasons.length === 0,
   };
 }
@@ -3027,6 +3345,7 @@ async function loadRepoSettings(repoPath: string): Promise<RepoSettings> {
     testDirectories: ['tests', 'test', 'e2e', 'specs'],
     sourceDirectories: ['src'],
     policy: createDefaultPolicy(),
+    policySource: 'default',
   };
 
   const ignoreFile = await readFile(join(repoPath, '.autoqaignore'), 'utf8').catch(() => '');
@@ -3037,7 +3356,7 @@ async function loadRepoSettings(repoPath: string): Promise<RepoSettings> {
     .filter((line) => line.length > 0 && !line.startsWith('#'));
 
   if (!configFile) {
-    const settings = {
+    const settings: RepoSettings = {
       ...defaultSettings,
       ignorePatterns: dedupeStrings(ignorePatterns),
     };
@@ -3070,6 +3389,7 @@ async function loadRepoSettings(repoPath: string): Promise<RepoSettings> {
 
     const parsedPolicy = parsed.policy ?? {};
     const basePolicy = createDefaultPolicy();
+    const hasPolicyConfig = Boolean(parsed.policy && typeof parsed.policy === 'object');
     const policy: RepoPolicy = {
       patchAllow: Array.isArray(parsedPolicy.patchAllow) ? parsedPolicy.patchAllow : basePolicy.patchAllow,
       patchDeny: Array.isArray(parsedPolicy.patchDeny) ? parsedPolicy.patchDeny : basePolicy.patchDeny,
@@ -3094,7 +3414,7 @@ async function loadRepoSettings(repoPath: string): Promise<RepoSettings> {
       },
     };
 
-    const settings = {
+    const settings: RepoSettings = {
       ignorePatterns: dedupeStrings([...ignorePatterns, ...(parsed.ignore ?? [])]),
       testDirectories: parsed.testDirectories?.length
         ? parsed.testDirectories
@@ -3103,11 +3423,12 @@ async function loadRepoSettings(repoPath: string): Promise<RepoSettings> {
         ? parsed.sourceDirectories
         : defaultSettings.sourceDirectories,
       policy,
+      policySource: hasPolicyConfig ? 'repo_config' : 'default',
     };
     setCachedValue(repoSettingsCache, repoPath, settings);
     return settings;
   } catch {
-    const settings = {
+    const settings: RepoSettings = {
       ...defaultSettings,
       ignorePatterns: dedupeStrings(ignorePatterns),
     };

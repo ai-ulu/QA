@@ -45,3 +45,9 @@ Bu dosya tekrar eden hatalari azaltmak icin kalici calisma derslerini tutar.
 
 14. CLI option parser'da tekrar eden flag'lerde son degeri kullan.
     NPM scriptleri sabit argumanlarla gelebilir (`--repo .` gibi); kullanici `-- --repo <path>` eklediginde override icin `lastIndexOf` yaklasimi daha dogrudur.
+
+15. Selected CI flows icin "no diff" durumunu error yerine ozet olarak ele al.
+    `ci_summary` ve PR comment gibi operator-facing akislar clean repo durumunda hard fail olmamali; `no_changes` status'u ile okunabilir ozet donmek daha guvenilir bir davranistir.
+
+16. Policy kararlarinda sadece metin degil kaynak ve kod da don.
+    `blockedReasons` tek basina yeterli degil; `source` ve stable `blockedReasonCodes` alanlari olmadan kullanici "bu karar nereden geldi?" sorusunu net cevaplayamaz.
