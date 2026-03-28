@@ -37,7 +37,7 @@ Nightly CI:
 - Varsayilan calisma: `pnpm dogfood:nightly`
 - Manual run icin opsiyonel limit: `workflow_dispatch.inputs.limit`
 
-## Artifactlar
+## Reportlar
 
 Her calisma sonunda su dosyalar yazilir:
 
@@ -64,4 +64,5 @@ Dogfood artik repo bazinda hard-crash olmaz; her repo sonucu ayri kaydedilir:
 - `status: passed | failed`
 - `reasonCode` (ornek: `clone_failed`, `candidate_file_not_found`, `marker_write_failed`, `ci_impact_failed`, `timeout`, `unexpected_error`)
 
-Nightly workflow bu artifactlari upload eder ve step summary'ye markdown raporunu yazar.
+Nightly workflow shell-only calisir, markdown raporunu step summary'ye yazar ve local report dosyalarini uretir.
+Artifact upload sonraki adimdir.
