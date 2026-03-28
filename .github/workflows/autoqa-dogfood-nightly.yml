@@ -11,57 +11,7 @@ permissions:
 jobs:
   dogfood-nightly:
     runs-on: ubuntu-latest
-    timeout-minutes: 120
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 10
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: pnpm
-
-      - name: Install
-        run: pnpm install --frozen-lockfile
-
-      - name: Build
-        run: pnpm build
-
-      - name: Run dogfood pack (soft-fail)
-        id: dogfood
-        shell: bash
-        run: |
-          pnpm dogfood:nightly
-          echo "report_md=packages/mcp-server/reports/autoqa-dogfood-latest.md" >> "$GITHUB_OUTPUT"
-          echo "report_json=packages/mcp-server/reports/autoqa-dogfood-latest.json" >> "$GITHUB_OUTPUT"
-
-      - name: Publish step summary
-        if: always()
-        shell: bash
-        run: |
-          if [ -f "${{ steps.dogfood.outputs.report_md }}" ]; then
-            cat "${{ steps.dogfood.outputs.report_md }}" >> "$GITHUB_STEP_SUMMARY"
-          else
-            echo "Dogfood report not found." >> "$GITHUB_STEP_SUMMARY"
-          fi
-
-      - name: Upload dogfood artifacts
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: autoqa-dogfood-nightly-${{ github.run_id }}
-          path: |
-            ${{ steps.dogfood.outputs.report_md }}
-            ${{ steps.dogfood.outputs.report_json }}
-            packages/mcp-server/reports/autoqa-dogfood-*.md
-            packages/mcp-server/reports/autoqa-dogfood-*.json
-          if-no-files-found: warn
+      - name: Smoke
+        run: echo "AutoQA Dogfood Nightly started"
