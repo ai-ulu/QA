@@ -91,3 +91,17 @@ Memory location:
   - inspect `policy.automationMode`, `policy.automationSource`, and `policy.automationPattern`.
 - CI summary metrics block bos geliyorsa:
   - once `autoqa_execute_run_plan` veya `autoqa_verify_patch` calistirip metrics sample uret.
+
+## 8. Run Dogfood Pack
+
+```bash
+pnpm dogfood -- --limit 3
+pnpm dogfood -- --soft-fail
+```
+
+Nightly CI workflow:
+
+- `.github/workflows/autoqa-dogfood-nightly.yml`
+- artifactlar:
+  - `packages/mcp-server/reports/autoqa-dogfood-latest.md`
+  - `packages/mcp-server/reports/autoqa-dogfood-latest.json`

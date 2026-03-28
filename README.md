@@ -22,6 +22,7 @@ pnpm v2:gate
 pnpm ci:impact
 pnpm release:check
 pnpm dogfood
+pnpm dogfood:nightly
 pnpm start
 node packages/mcp-server/scripts/ci-impact.mjs --repo . --auto-base --format github
 ```
@@ -48,9 +49,14 @@ node packages/mcp-server/scripts/ci-impact.mjs --repo . --auto-base --format git
 - targeted Playwright run execution
 - patch verification reports
 - onboarding docs for Codex, Cursor, and Claude Desktop
-- dogfood report across 3 real Playwright repos
+- dogfood report across a curated 12-repo Playwright pack
 
 `pnpm dogfood` now treats `.dogfood/` as a temporary workspace and cleans cloned repos by default. Use `--keep-clones` only when you need to inspect a cloned target after the run.
+
+`pnpm dogfood:nightly` runs the curated pack in `--soft-fail` mode and writes structured artifacts:
+
+- `packages/mcp-server/reports/autoqa-dogfood-latest.md`
+- `packages/mcp-server/reports/autoqa-dogfood-latest.json`
 
 `pnpm ci:impact` prefers branch diff analysis with `--auto-base`. If there is no committed diff to compare, it falls back to working tree analysis instead of failing with a parse error.
 
@@ -64,6 +70,7 @@ Operator guide:
 Required CI workflow:
 
 - [AutoQA Quality Gates](.github/workflows/autoqa-quality-gates.yml)
+- [AutoQA Dogfood Nightly](.github/workflows/autoqa-dogfood-nightly.yml)
 
 Roadmap:
 

@@ -57,3 +57,6 @@ Bu dosya tekrar eden hatalari azaltmak icin kalici calisma derslerini tutar.
 
 18. Conditional object literal union'larinda literal status alanini genisletme.
     `const result = condition ? { status: 'skipped' } : existingTypedResult` gibi kaliplarda TypeScript `status` alanini `string`e genisletebilir; bu tip kirilmasini onlemek icin degiskeni hedef tipe (`RunPlanExecution`) annotate et veya literal alanlari `as const` ile sabitle.
+
+19. Multi-repo dogfood kosularini fail-fast yerine per-repo fail-safe tasarla.
+    Tek bir repo clone/ci-impact hatasi tum kosuyu dusururse nightly sinyal kaybolur; repo bazli `status` + `reasonCode` kaydi ile ilerlemek ve sonunda toplu artifact uretmek daha guvenilir operasyon modeli saglar.

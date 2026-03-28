@@ -15,6 +15,7 @@ pnpm run memory:reset
 pnpm run v2:gate
 pnpm run ci:impact
 pnpm run dogfood -- --limit 1
+pnpm run dogfood -- --soft-fail
 ```
 
 ## Core Tools
@@ -164,5 +165,11 @@ pnpm run release:check
 ```
 
 `pnpm run dogfood` cleans cloned repositories under `.dogfood/` by default. Pass `--keep-clones` only when you want to inspect a cloned repo after the run.
+
+Dogfood artifacts:
+
+- Markdown report: `packages/mcp-server/reports/autoqa-dogfood-latest.md`
+- JSON report: `packages/mcp-server/reports/autoqa-dogfood-latest.json`
+- Per-repo failures are emitted as structured reason codes (`clone_failed`, `ci_impact_failed`, vb.) instead of hard-crashing the entire run.
 
 `pnpm run ci:impact` prefers merge-base diff analysis and falls back to working tree analysis when the current branch has no committed diff to compare.

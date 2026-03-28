@@ -4,11 +4,47 @@
     "url": "https://github.com/microsoft/playwright.git"
   },
   {
+    "name": "playwright-examples-official",
+    "url": "https://github.com/microsoft/playwright-examples.git"
+  },
+  {
     "name": "playwright-examples",
     "url": "https://github.com/checkly/playwright-examples.git"
   },
   {
     "name": "playwright-cucumber-ts",
     "url": "https://github.com/ortoniKC/Playwright_Cucumber_TS.git"
+  },
+  {
+    "name": "playwright-mcp",
+    "url": "https://github.com/microsoft/playwright-mcp.git"
+  },
+  {
+    "name": "playwright-cli",
+    "url": "https://github.com/microsoft/playwright-cli.git"
+  },
+  {
+    "name": "playwright-vscode",
+    "url": "https://github.com/microsoft/playwright-vscode.git"
+  },
+  {
+    "name": "playwright-typescript-template",
+    "url": "https://github.com/akshayp7/playwright-typescript-playwright-test.git"
+  },
+  {
+    "name": "playwright-bdd",
+    "url": "https://github.com/vitalets/playwright-bdd.git"
+  },
+  {
+    "name": "cucumber-playwright",
+    "url": "https://github.com/Tallyb/cucumber-playwright.git"
+  },
+  {
+    "name": "jest-playwright",
+    "url": "https://github.com/playwright-community/jest-playwright.git"
+  },
+  {
+    "name": "playwright-dev",
+    "url": "https://github.com/microsoft/playwright.dev.git"
   }
 ]

@@ -131,12 +131,12 @@ Additional V3 checks:
 
 ## Deliverables Checklist
 
-- [ ] reason code taxonomy documented
-- [ ] output contract updated in tool docs
-- [ ] safety modes implemented and tested
-- [ ] metrics file + summary output integrated
-- [ ] nightly dogfood workflow added
-- [ ] operator guide updated with V3 controls
+- [x] reason code taxonomy documented
+- [x] output contract updated in tool docs
+- [x] safety modes implemented and tested
+- [x] metrics file + summary output integrated
+- [x] nightly dogfood workflow added
+- [x] operator guide updated with V3 controls
 
 ## Rollout Strategy
 
