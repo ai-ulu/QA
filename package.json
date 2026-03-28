@@ -18,6 +18,7 @@
     "ci:impact": "pnpm --filter @autoqa/mcp-server ci:impact",
     "v2:gate": "pnpm --filter @autoqa/mcp-server v2:gate",
     "dogfood": "pnpm --filter @autoqa/mcp-server dogfood",
+    "dogfood:nightly": "pnpm --filter @autoqa/mcp-server dogfood -- --repos-file ./dogfood.repos.json --soft-fail",
     "release:check": "pnpm --filter @autoqa/mcp-server release:check",
     "smoke": "pnpm --filter @autoqa/mcp-server smoke",
     "clean": "Remove-Item -Recurse -Force .\\packages\\mcp-server\\dist -ErrorAction SilentlyContinue"

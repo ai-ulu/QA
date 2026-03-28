@@ -15,6 +15,7 @@ pnpm run memory:reset
 pnpm run v2:gate
 pnpm run ci:impact
 pnpm run dogfood -- --limit 1
+pnpm run dogfood -- --soft-fail
 ```
 
 ## Core Tools
@@ -53,8 +54,10 @@ Artifact-aware inputs:
 Local repo memory:
 
 - `verify_patch` writes local state to `.autoqa/state/memory.json`.
+- `execute_run_plan` and `verify_patch` write local metrics to `.autoqa/state/metrics.json`.
 - `pnpm run memory:inspect` prints summary + full JSON payload.
 - `pnpm run memory:reset` deletes local memory (force-enabled in package script).
+- Memory now tracks pattern-level stats under `patternStats` for acceptance/re-break learning loops.
 - Current retention caps:
   - `recentFailures`: 50
   - `acceptedPatches`: 80
@@ -80,6 +83,12 @@ Policy config (`autoqa.config.json`):
     },
     "testBudget": {
       "maxTests": 3
+    },
+    "automation": {
+      "mode": "guarded_apply",
+      "branchOverrides": [
+        { "pattern": "release/*", "mode": "report_only" }
+      ]
     }
   }
 }
@@ -94,10 +103,18 @@ Behavior:
 - `autoqa_suggest_patch` ciktilarinda `policy` objesi de doner:
   - `mode`
   - `source`
+  - `automationMode`
+  - `automationSource`
+  - `automationPattern`
   - `applyThreshold`
   - `shouldApply`
   - `blockedReasons`
   - `blockedReasonCodes`
+- Safety mode davranisi:
+  - `report_only`: patch apply ve run/verify execution bloklanir
+  - `suggest_only`: patch apply ve run/verify execution bloklanir
+  - `guarded_apply`: policy threshold + protected file kurallariyla calisir
+  - `auto_apply`: apply istemi verilmemisse bile apply dener, ama threshold/protected kurallarini asamaz
 - CLI override:
   - `policyMode: "report_only"` -> repo config ne olursa olsun apply kapatilir.
   - `policyMode: "enforce"` -> policy kurallari zorunlu uygulanir.
@@ -106,10 +123,17 @@ Behavior:
 Clean diff handling:
 
 - `autoqa_ci_summary` selected flows now return `status: "no_changes"` instead of hard fail when the selected diff scope is empty.
+- `autoqa_ci_summary` includes memory confidence hints (`confidenceHint`, `confidenceExplanation`) when memory state is available.
+- `autoqa_ci_summary` includes metrics summary ratios when local metrics samples exist.
+- V3 WS1 reason-code contract:
+  - `blockedReasonCodes` for `suggest`, `execute`, `verify`
+  - `warningCodes` for `targeted_run_plan`
+  - `reasonCodes` for `ci_summary`
 
 Operator guide:
 
 - See [docs/operator-guide.md](../../docs/operator-guide.md)
+- See [docs/reason-codes.md](../../docs/reason-codes.md)
 
 V2 milestone gate:
 
@@ -138,8 +162,14 @@ Run this before publishing:
 
 ```bash
 pnpm run release:check
+```
 
 `pnpm run dogfood` cleans cloned repositories under `.dogfood/` by default. Pass `--keep-clones` only when you want to inspect a cloned repo after the run.
 
+Dogfood artifacts:
+
+- Markdown report: `packages/mcp-server/reports/autoqa-dogfood-latest.md`
+- JSON report: `packages/mcp-server/reports/autoqa-dogfood-latest.json`
+- Per-repo failures are emitted as structured reason codes (`clone_failed`, `ci_impact_failed`, vb.) instead of hard-crashing the entire run.
+
 `pnpm run ci:impact` prefers merge-base diff analysis and falls back to working tree analysis when the current branch has no committed diff to compare.
-```

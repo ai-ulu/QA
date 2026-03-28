@@ -97,6 +97,10 @@ async function createRepoFixture() {
           testBudget: {
             maxTests: 3,
           },
+          automation: {
+            mode: 'guarded_apply',
+            branchOverrides: [],
+          },
         },
       },
       null,
@@ -273,10 +277,120 @@ try {
             verify: 0.6,
           },
           branch: {
+            reportOnly: [],
+          },
+          testBudget: {
+            maxTests: 3,
+          },
+          automation: {
+            mode: 'suggest_only',
+            branchOverrides: [],
+          },
+        },
+      },
+      null,
+      2
+    )}\n`,
+    'utf8'
+  );
+  await wait(3200);
+
+  const suggestOnlyModeResult = await client.callTool({
+    name: 'autoqa_suggest_patch',
+    arguments: {
+      repoPath: repoFixturePath,
+      issue: 'Login button selector drift. Prefer a role-based locator.',
+      apply: true,
+      sampleLimit: 5,
+    },
+  });
+  const suggestOnlyModePayload = JSON.parse(extractText(suggestOnlyModeResult));
+  assert.equal(suggestOnlyModePayload.applied, false);
+  assert.ok(suggestOnlyModePayload.blockedReasonCodes.includes('automation_mode_blocked'));
+  assert.equal(suggestOnlyModePayload.policy.automationMode, 'suggest_only');
+  assert.equal(suggestOnlyModePayload.policy.automationSource, 'repo_config');
+
+  await writeFile(
+    join(repoFixturePath, 'autoqa.config.json'),
+    `${JSON.stringify(
+      {
+        ignore: ['dist/**'],
+        testDirectories: ['tests', 'qa-tests'],
+        sourceDirectories: ['src'],
+        policy: {
+          patchAllow: ['tests/**', 'qa-tests/**'],
+          patchDeny: [],
+          protectedFiles: ['src/auth/**', 'src/billing/**'],
+          confidenceThresholds: {
+            suggest: 0.55,
+            apply: 0.55,
+            verify: 0.6,
+          },
+          branch: {
+            reportOnly: [],
+          },
+          testBudget: {
+            maxTests: 3,
+          },
+          automation: {
+            mode: 'guarded_apply',
+            branchOverrides: [{ pattern: 'feature/*', mode: 'auto_apply' }],
+          },
+        },
+      },
+      null,
+      2
+    )}\n`,
+    'utf8'
+  );
+  await wait(3200);
+
+  const autoApplyBranchOverrideResult = await client.callTool({
+    name: 'autoqa_suggest_patch',
+    arguments: {
+      repoPath: repoFixturePath,
+      issue: 'Login button selector drift. Prefer a role-based locator.',
+      sampleLimit: 5,
+    },
+  });
+  const autoApplyBranchOverridePayload = JSON.parse(extractText(autoApplyBranchOverrideResult));
+  assert.equal(autoApplyBranchOverridePayload.applied, true);
+  assert.equal(autoApplyBranchOverridePayload.patch.dryRun, false);
+  assert.equal(autoApplyBranchOverridePayload.policy.automationMode, 'auto_apply');
+  assert.equal(autoApplyBranchOverridePayload.policy.automationSource, 'branch_override');
+  assert.equal(autoApplyBranchOverridePayload.policy.automationPattern, 'feature/*');
+
+  await writeFile(
+    join(repoFixturePath, 'tests', 'login.spec.ts'),
+    `import { test, expect } from 'playwright/test';\nimport { readFileSync } from 'node:fs';\nimport { join } from 'node:path';\n\ntest('login button', async ({ page }) => {\n  const component = readFileSync(join(process.cwd(), 'src', 'login-button.tsx'), 'utf8');\n  const className = component.match(/className="([^"]+)"/)?.[1] ?? 'missing-class';\n  const label = component.match(/>([^<]+)</)?.[1] ?? 'missing-label';\n  await page.setContent(\`<button class="\${className}">\${label}</button>\`);\n  await expect(page.locator('.login-button')).toBeVisible();\n});\n`,
+    'utf8'
+  );
+
+  await writeFile(
+    join(repoFixturePath, 'autoqa.config.json'),
+    `${JSON.stringify(
+      {
+        ignore: ['dist/**'],
+        testDirectories: ['tests', 'qa-tests'],
+        sourceDirectories: ['src'],
+        policy: {
+          patchAllow: ['tests/**', 'qa-tests/**'],
+          patchDeny: [],
+          protectedFiles: ['src/auth/**', 'src/billing/**'],
+          confidenceThresholds: {
+            suggest: 0.55,
+            apply: 0.85,
+            verify: 0.6,
+          },
+          branch: {
             reportOnly: ['feature/*'],
           },
           testBudget: {
             maxTests: 3,
+          },
+          automation: {
+            mode: 'auto_apply',
+            branchOverrides: [],
           },
         },
       },
@@ -306,6 +420,8 @@ try {
   assert.ok(policyBlockedSuggestPatchPayload.blockedReasonCodes.includes('branch_report_only'));
   assert.equal(policyBlockedSuggestPatchPayload.policy.mode, 'auto');
   assert.equal(policyBlockedSuggestPatchPayload.policy.source, 'repo_config');
+  assert.equal(policyBlockedSuggestPatchPayload.policy.automationMode, 'report_only');
+  assert.equal(policyBlockedSuggestPatchPayload.policy.automationSource, 'legacy_report_only_branch');
   assert.equal(policyBlockedSuggestPatchPayload.policy.shouldApply, false);
   assert.ok(Array.isArray(policyBlockedSuggestPatchPayload.policy.blockedReasons));
   assert.ok(Array.isArray(policyBlockedSuggestPatchPayload.policy.blockedReasonCodes));
@@ -331,6 +447,10 @@ try {
           },
           testBudget: {
             maxTests: 3,
+          },
+          automation: {
+            mode: 'auto_apply',
+            branchOverrides: [],
           },
         },
       },
@@ -358,6 +478,8 @@ try {
   assert.ok(cliReportOnlySuggestPatchPayload.blockedReasons.some((line) => /report_only/i.test(line)));
   assert.equal(cliReportOnlySuggestPatchPayload.policy.mode, 'report_only');
   assert.equal(cliReportOnlySuggestPatchPayload.policy.source, 'cli_override');
+  assert.equal(cliReportOnlySuggestPatchPayload.policy.automationMode, 'report_only');
+  assert.equal(cliReportOnlySuggestPatchPayload.policy.automationSource, 'cli_override');
   assert.equal(cliReportOnlySuggestPatchPayload.policy.shouldApply, false);
   assert.ok(cliReportOnlySuggestPatchPayload.blockedReasonCodes.includes('branch_report_only'));
 
@@ -383,6 +505,10 @@ try {
           testBudget: {
             maxTests: 3,
           },
+          automation: {
+            mode: 'auto_apply',
+            branchOverrides: [],
+          },
         },
       },
       null,
@@ -397,13 +523,14 @@ try {
     arguments: {
       repoPath: repoFixturePath,
       issue: 'Login button selector drift. Prefer a role-based locator.',
-      apply: true,
+      apply: false,
       sampleLimit: 5,
     },
   });
   const protectedSuggestPatchPayload = JSON.parse(extractText(protectedSuggestPatchResult));
   assert.equal(protectedSuggestPatchPayload.applied, false);
   assert.ok(protectedSuggestPatchPayload.blockedReasonCodes.includes('protected_file'));
+  assert.equal(protectedSuggestPatchPayload.policy.automationMode, 'auto_apply');
   assert.equal(protectedSuggestPatchPayload.policy.source, 'repo_config');
 
   await writeFile(
@@ -428,6 +555,10 @@ try {
           testBudget: {
             maxTests: 3,
           },
+          automation: {
+            mode: 'auto_apply',
+            branchOverrides: [],
+          },
         },
       },
       null,
@@ -442,7 +573,7 @@ try {
     arguments: {
       repoPath: repoFixturePath,
       issue: 'Login button selector drift. Prefer a role-based locator.',
-      apply: true,
+      apply: false,
       policyMode: 'enforce',
       applyThresholdOverride: 0.99,
       sampleLimit: 5,
@@ -451,7 +582,43 @@ try {
   const thresholdSuggestPatchPayload = JSON.parse(extractText(thresholdSuggestPatchResult));
   assert.equal(thresholdSuggestPatchPayload.applied, false);
   assert.equal(thresholdSuggestPatchPayload.policy.source, 'cli_override');
+  assert.equal(thresholdSuggestPatchPayload.policy.automationMode, 'auto_apply');
   assert.ok(thresholdSuggestPatchPayload.blockedReasonCodes.includes('below_apply_threshold'));
+
+  await writeFile(
+    join(repoFixturePath, 'autoqa.config.json'),
+    `${JSON.stringify(
+      {
+        ignore: ['dist/**'],
+        testDirectories: ['tests', 'qa-tests'],
+        sourceDirectories: ['src'],
+        policy: {
+          patchAllow: ['tests/**', 'qa-tests/**'],
+          patchDeny: [],
+          protectedFiles: [],
+          confidenceThresholds: {
+            suggest: 0.55,
+            apply: 0.85,
+            verify: 0.6,
+          },
+          branch: {
+            reportOnly: [],
+          },
+          testBudget: {
+            maxTests: 3,
+          },
+          automation: {
+            mode: 'guarded_apply',
+            branchOverrides: [],
+          },
+        },
+      },
+      null,
+      2
+    )}\n`,
+    'utf8'
+  );
+  await wait(3200);
 
   const artifactSuggestPatchResult = await client.callTool({
     name: 'autoqa_suggest_patch',
@@ -576,6 +743,7 @@ try {
   assert.ok(Array.isArray(targetedRunPlanPayload.runGroups));
   assert.equal(targetedRunPlanPayload.runGroups[0].label, 'highest_priority');
   assert.ok(targetedRunPlanPayload.runGroups[0].tests.includes('tests/login.spec.ts'));
+  assert.ok(Array.isArray(targetedRunPlanPayload.warningCodes));
 
   await execFileAsync('git', ['add', 'src/login-button.tsx'], { cwd: repoFixturePath });
   await execFileAsync('git', ['commit', '-m', 'update login button'], { cwd: repoFixturePath });
@@ -606,6 +774,91 @@ try {
   assert.match(ciImpactCommand.stdout, /QA summary/);
   assert.match(ciImpactCommand.stdout, /Highest-risk test: tests\/login\.spec\.ts/);
 
+  await writeFile(
+    join(repoFixturePath, 'autoqa.config.json'),
+    `${JSON.stringify(
+      {
+        ignore: ['dist/**'],
+        testDirectories: ['tests', 'qa-tests'],
+        sourceDirectories: ['src'],
+        policy: {
+          patchAllow: ['tests/**', 'qa-tests/**'],
+          patchDeny: [],
+          protectedFiles: [],
+          confidenceThresholds: {
+            suggest: 0.55,
+            apply: 0.85,
+            verify: 0.6,
+          },
+          branch: {
+            reportOnly: [],
+          },
+          testBudget: {
+            maxTests: 3,
+          },
+          automation: {
+            mode: 'suggest_only',
+            branchOverrides: [],
+          },
+        },
+      },
+      null,
+      2
+    )}\n`,
+    'utf8'
+  );
+  await wait(3200);
+
+  const suggestOnlyExecuteRunPlanResult = await client.callTool({
+    name: 'autoqa_execute_run_plan',
+    arguments: {
+      repoPath: repoFixturePath,
+      autoBase: true,
+      maxTests: 2,
+      sampleLimit: 5,
+    },
+  });
+  const suggestOnlyExecuteRunPlanPayload = JSON.parse(extractText(suggestOnlyExecuteRunPlanResult));
+  assert.equal(suggestOnlyExecuteRunPlanPayload.executed, false);
+  assert.equal(suggestOnlyExecuteRunPlanPayload.status, 'skipped');
+  assert.ok(suggestOnlyExecuteRunPlanPayload.blockedReasonCodes.includes('automation_mode_blocked'));
+  assert.equal(suggestOnlyExecuteRunPlanPayload.policy.automationMode, 'suggest_only');
+
+  await writeFile(
+    join(repoFixturePath, 'autoqa.config.json'),
+    `${JSON.stringify(
+      {
+        ignore: ['dist/**'],
+        testDirectories: ['tests', 'qa-tests'],
+        sourceDirectories: ['src'],
+        policy: {
+          patchAllow: ['tests/**', 'qa-tests/**'],
+          patchDeny: [],
+          protectedFiles: [],
+          confidenceThresholds: {
+            suggest: 0.55,
+            apply: 0.85,
+            verify: 0.6,
+          },
+          branch: {
+            reportOnly: [],
+          },
+          testBudget: {
+            maxTests: 3,
+          },
+          automation: {
+            mode: 'guarded_apply',
+            branchOverrides: [],
+          },
+        },
+      },
+      null,
+      2
+    )}\n`,
+    'utf8'
+  );
+  await wait(3200);
+
   const executeRunPlanResult = await client.callTool({
     name: 'autoqa_execute_run_plan',
     arguments: {
@@ -621,6 +874,7 @@ try {
   assert.ok(executeRunPlanPayload.tests.includes('tests/login.spec.ts'));
   assert.equal(executeRunPlanPayload.policy.source, 'repo_config');
   assert.equal(executeRunPlanPayload.policy.maxTestsApplied, 2);
+  assert.equal(executeRunPlanPayload.policy.automationMode, 'guarded_apply');
 
   const verifyPatchResult = await client.callTool({
     name: 'autoqa_verify_patch',
@@ -642,6 +896,7 @@ try {
   assert.equal(verifyPatchPayload.evidenceUsed.length, 0);
   assert.equal(verifyPatchPayload.policy.source, 'repo_config');
   assert.equal(verifyPatchPayload.policy.shouldVerify, true);
+  assert.equal(verifyPatchPayload.policy.automationMode, 'guarded_apply');
   const verificationReport = await readFile(verifyPatchPayload.reportPath, 'utf8');
   assert.match(verificationReport, /AutoQA Patch Verification/);
   assert.match(verificationReport, /Status: passed/);
@@ -658,6 +913,17 @@ try {
   assert.ok(Array.isArray(memoryJson.acceptedPatches));
   assert.ok(memoryJson.acceptedPatches.length > 0);
   assert.equal(memoryJson.acceptedPatches.at(-1).targetFile, 'tests/login.spec.ts');
+  assert.ok(Array.isArray(memoryJson.acceptedPatches.at(-1).patterns));
+  assert.ok(Array.isArray(memoryJson.patternStats));
+  assert.ok(memoryJson.patternStats.length > 0);
+  assert.ok(memoryJson.patternStats.some((entry) => entry.pattern === 'selector'));
+  const metricsPath = join(repoFixturePath, '.autoqa', 'state', 'metrics.json');
+  const metricsRaw = await readFile(metricsPath, 'utf8');
+  const metricsJson = JSON.parse(metricsRaw);
+  assert.equal(metricsJson.schemaVersion, 1);
+  assert.ok(metricsJson.suggestions.attempted > 0);
+  assert.ok(metricsJson.verify.total > 0);
+  assert.ok(metricsJson.execution.total > 0);
 
   await writeFile(
     join(repoFixturePath, 'src', 'app.tsx'),
@@ -708,11 +974,17 @@ try {
   assert.match(workingTreeSummaryPayload.summary, /\*\*Mode:\*\* Working tree QA summary \(unstaged\)/);
   assert.match(workingTreeSummaryPayload.summary, /tests\/login\.spec\.ts/);
   assert.match(workingTreeSummaryPayload.summary, /<summary>Repo memory<\/summary>/);
+  assert.match(workingTreeSummaryPayload.summary, /Memory confidence:/);
   assert.match(workingTreeSummaryPayload.summary, /<!-- autoqa:pr-comment:block:end -->/);
   assert.ok(workingTreeSummaryPayload.changedFiles.includes('src/app.tsx'));
   assert.ok(workingTreeSummaryPayload.changedFiles.includes('src/profile-link.tsx'));
   assert.ok(workingTreeSummaryPayload.memorySummary.failedRuns >= 0);
   assert.ok(workingTreeSummaryPayload.memorySummary.acceptedPatches > 0);
+  assert.equal(typeof workingTreeSummaryPayload.memorySummary.confidenceHint, 'string');
+  assert.equal(typeof workingTreeSummaryPayload.metricsSummary.acceptedSuggestionRate, 'number');
+  assert.equal(typeof workingTreeSummaryPayload.metricsSummary.verifyPassRate, 'number');
+  assert.ok(workingTreeSummaryPayload.metricsSummary.available);
+  assert.ok(Array.isArray(workingTreeSummaryPayload.reasonCodes));
 
   await execFileAsync('git', ['add', 'src/app.tsx', 'src/profile-link.tsx'], { cwd: repoFixturePath });
 
@@ -731,6 +1003,7 @@ try {
   assert.equal(stagedSummaryPayload.diffSource.staged, true);
   assert.match(stagedSummaryPayload.summary, /Working tree QA summary \(staged\)/);
   assert.match(stagedSummaryPayload.summary, /Run first: tests\/login\.spec\.ts/);
+  assert.match(stagedSummaryPayload.summary, /Reason codes:/);
   assert.ok(stagedSummaryPayload.changedFiles.includes('src/profile-link.tsx'));
 
   const dryRunPatchResult = await client.callTool({
@@ -792,6 +1065,12 @@ try {
   const noChangesSummaryPayload = JSON.parse(extractText(noChangesSummaryResult));
   assert.equal(noChangesSummaryPayload.status, 'no_changes');
   assert.match(noChangesSummaryPayload.summary, /No changes detected/i);
+  assert.match(noChangesSummaryPayload.summary, /Memory confidence:/i);
+  assert.match(noChangesSummaryPayload.summary, /Metrics:/i);
+  assert.match(noChangesSummaryPayload.summary, /Reason codes:/i);
+  assert.ok(Array.isArray(noChangesSummaryPayload.reasonCodes));
+  assert.ok(noChangesSummaryPayload.reasonCodes.includes('no_changes'));
+  assert.equal(typeof noChangesSummaryPayload.metricsSummary.sampleCount, 'number');
   assert.equal(noChangesSummaryPayload.changedFiles.length, 0);
 
   console.log('MCP smoke test passed');

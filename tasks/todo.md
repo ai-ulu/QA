@@ -4,66 +4,55 @@ Bu dosya aktif uygulama planidir.
 
 Kaynak backlog:
 
+- `V3_EXECUTION_PLAN.md`
 - `CURRENT_STATUS_AND_NEXT_SPRINT.md`
-- `TASKS_V2.md`
 
 ## Current Focus
 
-V2 hardening sprint:
-
-- structured policy diagnostics
-- clean-diff graceful CI behavior
-- memory visibility
-- required quality gates
-- operator docs
+V3 WS5 - Real Repo Pack + Nightly Dogfood Workflow
 
 ## Spec
 
 Hedef:
-V2'yi broad rollout oncesi daha guvenilir ve daha okunabilir hale getirmek.
+Gercek repo cesitliliginde dogfood sinyalini artisli ve operasyonel hale getirmek.
 
 Basari kosulu:
 
-- policy kararlarinda stable reason code + precedence source gorunur
-- clean diff / no-change durumunda `ci_summary` ve PR bot hard fail olmaz
-- CI summary icinde compact memory sinyali gorunur
-- GitHub workflow tarafinda required quality gate akisi vardir
-- operator icin kisa kullanim rehberi yazilidir
+- `dogfood.repos.json` en az 10 public repo iceriyor
+- nightly workflow dogfood calistirip artifact upload ediyor
+- dogfood script repo-bazli structured failure raporu uretiyor
+- failure durumunda tum kosu hard-crash olmadan rapor uretebiliyor
 
 ## Plan
 
-1. `[x]` Policy output contract'ina structured reason code ve precedence source ekle.
-2. `[x]` `execute_run_plan` ve `verify_patch` ciktilarinda policy trace gorunur hale getir.
-3. `[x]` `ci_summary` icine compact memory summary ekle.
-4. `[x]` Clean-diff durumunda graceful `no_changes` summary don.
-5. `[x]` Smoke test fixture'larina protected-file ve apply-threshold policy edge case'leri ekle.
-6. `[x]` Required quality gate GitHub workflow'u ekle.
-7. `[x]` 5 dakikalik operator guide yaz.
-8. `[x]` `pnpm test`, `pnpm build`, `pnpm v2:gate` ile dogrula.
+1. `[x]` `dogfood.repos.json` listesini 10+ repo seviyesine genislet.
+2. `[x]` `dogfood.mjs` akisini per-repo status + reasonCode + artifact modeline cevir.
+3. `[x]` nightly workflow dosyasini ekle (`autoqa-dogfood-nightly.yml`).
+4. `[x]` README/DOGFOOD ve package README dokumanlarini yeni akisla guncelle.
+5. `[x]` `pnpm build`, `pnpm test`, `pnpm run v2:gate`, `pnpm dogfood -- --soft-fail` ile dogrula.
 
 ## Verification
 
 - Calistirilacak:
-  - `pnpm test`
   - `pnpm build`
+  - `pnpm test`
   - `pnpm run v2:gate`
+  - `pnpm dogfood -- --soft-fail`
 - Beklenen kanit:
-  - smoke icinde yeni policy assert'leri
-  - clean-diff `no_changes` summary assert'i
-  - memory summary assert'i
-  - workflow ve docs dosyalarinin repoda olmasi
+  - dogfood run sonunda `autoqa-dogfood-latest.md` ve `.json` dosyalari yazilmis olmali
+  - raporda `status`/`reasonCode` dagilimi gorunmeli
+  - workflow dosyasi syntax olarak gecmeli ve artifact upload adimi icermeli
+  - build + smoke + gate komutlari yesil kalmali
 - Gecen komutlar:
-  - `pnpm test`
   - `pnpm build`
+  - `pnpm test`
   - `pnpm run v2:gate`
+  - `pnpm dogfood -- --soft-fail` (12 repo, 12 passed, 0 failed)
 
 ## Review
 
 Durum:
 
-- Hardening sprint tamamlandi ve kanitlandi.
-- V2 artik broad rollout icin daha guvenli:
-  - required quality gates var
-  - clean-diff graceful summary var
-  - structured policy diagnostics var
-  - operator guide var
+- V2 hardening tamamlandi (onceki sprint).
+- V3 WS1, WS2, WS3 ve WS4 tamamlandi.
+- WS5 implementation ve dogrulama tamamlandi.

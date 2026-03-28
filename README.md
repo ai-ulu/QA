@@ -22,6 +22,7 @@ pnpm v2:gate
 pnpm ci:impact
 pnpm release:check
 pnpm dogfood
+pnpm dogfood:nightly
 pnpm start
 node packages/mcp-server/scripts/ci-impact.mjs --repo . --auto-base --format github
 ```
@@ -48,9 +49,14 @@ node packages/mcp-server/scripts/ci-impact.mjs --repo . --auto-base --format git
 - targeted Playwright run execution
 - patch verification reports
 - onboarding docs for Codex, Cursor, and Claude Desktop
-- dogfood report across 3 real Playwright repos
+- dogfood report across a curated 12-repo Playwright pack
 
 `pnpm dogfood` now treats `.dogfood/` as a temporary workspace and cleans cloned repos by default. Use `--keep-clones` only when you need to inspect a cloned target after the run.
+
+`pnpm dogfood:nightly` runs the curated pack in `--soft-fail` mode and writes structured artifacts:
+
+- `packages/mcp-server/reports/autoqa-dogfood-latest.md`
+- `packages/mcp-server/reports/autoqa-dogfood-latest.json`
 
 `pnpm ci:impact` prefers branch diff analysis with `--auto-base`. If there is no committed diff to compare, it falls back to working tree analysis instead of failing with a parse error.
 
@@ -59,10 +65,12 @@ node packages/mcp-server/scripts/ci-impact.mjs --repo . --auto-base --format git
 Operator guide:
 
 - [5-minute operator guide](docs/operator-guide.md)
+- [Reason code taxonomy](docs/reason-codes.md)
 
 Required CI workflow:
 
 - [AutoQA Quality Gates](.github/workflows/autoqa-quality-gates.yml)
+- [AutoQA Dogfood Nightly](.github/workflows/autoqa-dogfood-nightly.yml)
 
 Roadmap:
 
@@ -99,6 +107,8 @@ Artifact-aware patching:
 Repo memory:
 
 - `autoqa_verify_patch` her calisma sonunda `.autoqa/state/memory.json` dosyasini gunceller.
+- Memory icinde pattern bazli ogrenme istatistikleri tutulur (`patternStats`).
+- `autoqa_execute_run_plan` ve `autoqa_verify_patch` metrikleri `.autoqa/state/metrics.json` dosyasina yazar.
 - `pnpm memory:inspect` ile memory ozetini inceleyebilirsin.
 - `pnpm memory:reset` ile local memory dosyasini sifirlayabilirsin.
 - Dosya local state oldugu icin `.gitignore` icinde tutulur.
@@ -109,6 +119,8 @@ Policy engine (`autoqa.config.json`):
 - `policy.confidenceThresholds.suggest|apply|verify`
 - `policy.branch.reportOnly` (or: `main`, `release/*`)
 - `policy.testBudget.maxTests`
+- `policy.automation.mode` (`report_only|suggest_only|guarded_apply|auto_apply`)
+- `policy.automation.branchOverrides` (branch pattern bazli mode override)
 
 Policy aktifken:
 
@@ -121,7 +133,16 @@ Policy aktifken:
   - `default`
   - `repo_config`
   - `cli_override`
+- `policy` alaninda automation trace de doner:
+  - `automationMode`
+  - `automationSource`
+  - `automationPattern`
 - `autoqa_ci_summary` clean diff durumlarinda `no_changes` status'u ile graceful ozet doner.
+- `autoqa_ci_summary` memory confidence hint sinyali de verir (`confidenceHint`, `confidenceExplanation`).
+- V3 WS1 ile stable reason-code sinyali:
+  - `blockedReasonCodes` (`suggest`, `execute`, `verify`)
+  - `warningCodes` (`targeted_run_plan`)
+  - `reasonCodes` (`ci_summary`)
 - CLI override ile `policyMode: report_only|enforce|auto` secilebilir.
 
 ## Scope

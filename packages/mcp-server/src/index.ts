@@ -56,6 +56,7 @@ type MemoryPatchRecord = {
   timestamp: string;
   issue: string;
   targetFile: string;
+  patterns: LearningPattern[];
   confidenceLevel: ConfidenceLevel;
   applied: boolean;
   status: 'passed' | 'failed' | 'skipped';
@@ -76,6 +77,24 @@ type MemorySelectorHistoryEntry = {
   sourceFile: string;
 };
 
+type LearningPattern =
+  | 'selector'
+  | 'text'
+  | 'navigation'
+  | 'timing'
+  | 'auth'
+  | 'fixture'
+  | 'unknown';
+
+type MemoryPatternStat = {
+  pattern: LearningPattern;
+  attempts: number;
+  accepted: number;
+  failed: number;
+  rebreaks: number;
+  lastUpdated: string;
+};
+
 type AutoQaRepoMemory = {
   schemaVersion: 1;
   updatedAt: string;
@@ -84,8 +103,34 @@ type AutoQaRepoMemory = {
   recentFailures: MemoryFailureRecord[];
   acceptedPatches: MemoryPatchRecord[];
   rejectedPatches: MemoryPatchRecord[];
+  patternStats: MemoryPatternStat[];
   selectorHistory: MemorySelectorHistoryEntry[];
   routeHistory: MemorySelectorHistoryEntry[];
+};
+
+type AutoQaRepoMetrics = {
+  schemaVersion: 1;
+  updatedAt: string;
+  repoFingerprint: string;
+  suggestions: {
+    attempted: number;
+    applied: number;
+    blocked: number;
+  };
+  verify: {
+    total: number;
+    passed: number;
+    failed: number;
+    skipped: number;
+  };
+  execution: {
+    total: number;
+    skippedByPolicy: number;
+  };
+  rebreaks: {
+    total: number;
+    detected: number;
+  };
 };
 
 type RepoMemoryAdapter = {
@@ -93,8 +138,20 @@ type RepoMemoryAdapter = {
   write(repoPath: string, memoryPath: string, memory: AutoQaRepoMemory): Promise<void>;
 };
 
+type RepoMetricsAdapter = {
+  read(repoPath: string): Promise<{ metricsPath: string; metrics: AutoQaRepoMetrics; existed: boolean }>;
+  write(repoPath: string, metricsPath: string, metrics: AutoQaRepoMetrics): Promise<void>;
+};
+
 type PolicyMode = 'auto' | 'report_only' | 'enforce';
 type PolicySource = 'default' | 'repo_config' | 'cli_override';
+type AutomationMode = 'report_only' | 'suggest_only' | 'guarded_apply' | 'auto_apply';
+type AutomationSource =
+  | 'default'
+  | 'repo_config'
+  | 'branch_override'
+  | 'legacy_report_only_branch'
+  | 'cli_override';
 type PolicyReasonCode =
   | 'not_in_allow_list'
   | 'matched_deny_rule'
@@ -102,11 +159,31 @@ type PolicyReasonCode =
   | 'branch_report_only'
   | 'below_apply_threshold'
   | 'below_verify_threshold'
-  | 'test_budget_capped';
+  | 'test_budget_capped'
+  | 'automation_mode_blocked';
+type FlowReasonCode = 'no_changes' | 'no_patch_suggestion' | 'no_affected_tests';
+type ReasonCode = PolicyReasonCode | FlowReasonCode;
+
+const REASON_CODE_DESCRIPTIONS: Record<ReasonCode, string> = {
+  not_in_allow_list: 'Target file is outside the configured patch allow list.',
+  matched_deny_rule: 'Target file matched a configured patch deny rule.',
+  protected_file: 'Target file matched protected-file policy.',
+  branch_report_only: 'Apply mode is report-only due to branch or CLI policy override.',
+  below_apply_threshold: 'Patch confidence is below the apply threshold.',
+  below_verify_threshold: 'Patch confidence is below the verify threshold.',
+  test_budget_capped: 'Requested test count exceeded the policy test budget.',
+  automation_mode_blocked: 'Requested action is blocked by active automation mode.',
+  no_changes: 'Selected diff scope has no relevant file changes.',
+  no_patch_suggestion: 'No automatic patch suggestion was derived from the diff.',
+  no_affected_tests: 'No affected tests were inferred; manual QA review is recommended.',
+};
 
 type PolicyTrace = {
   mode: PolicyMode;
   source: PolicySource;
+  automationMode: AutomationMode;
+  automationSource: AutomationSource;
+  automationPattern?: string;
   applyThreshold: number;
   verifyThreshold?: number;
   shouldApply?: boolean;
@@ -123,10 +200,28 @@ type RepoMemorySummary = {
   failedRuns: number;
   acceptedPatches: number;
   rejectedPatches: number;
+  confidenceHint: 'high' | 'medium' | 'low' | 'insufficient_data';
+  confidenceExplanation: string;
+  topPatternSignals: Array<{
+    pattern: LearningPattern;
+    attempts: number;
+    acceptanceRate: number;
+    rebreakRate: number;
+    score: number;
+  }>;
   topFailingTests: Array<{
     file: string;
     count: number;
   }>;
+};
+
+type RepoMetricsSummary = {
+  available: boolean;
+  sampleCount: number;
+  acceptedSuggestionRate: number;
+  verifyPassRate: number;
+  rebreakRate: number;
+  skippedByPolicyRatio: number;
 };
 
 const AUTOQA_PR_COMMENT_MARKER = '<!-- autoqa:pr-comment:v1 -->';
@@ -242,6 +337,8 @@ type CiSummary = {
   suggestedRunTargets: string[];
   changedFiles: string[];
   memorySummary: RepoMemorySummary;
+  metricsSummary: RepoMetricsSummary;
+  reasonCodes: ReasonCode[];
 };
 
 type TargetedRunPlan = {
@@ -262,6 +359,7 @@ type TargetedRunPlan = {
   }>;
   confidenceLevel: ConfidenceLevel;
   warnings: string[];
+  warningCodes: ReasonCode[];
 };
 
 type RunPlanExecution = {
@@ -297,6 +395,7 @@ type RepoSettings = {
   sourceDirectories: string[];
   policy: RepoPolicy;
   policySource: Exclude<PolicySource, 'cli_override'>;
+  automationConfigSource: Exclude<AutomationSource, 'branch_override' | 'legacy_report_only_branch' | 'cli_override'>;
 };
 
 type RepoPolicy = {
@@ -313,6 +412,13 @@ type RepoPolicy = {
   };
   testBudget: {
     maxTests: number;
+  };
+  automation: {
+    mode: AutomationMode;
+    branchOverrides: Array<{
+      pattern: string;
+      mode: AutomationMode;
+    }>;
   };
 };
 
@@ -348,6 +454,7 @@ const MEMORY_SCHEMA_VERSION = 1;
 const MEMORY_MAX_RECENT_FAILURES = 50;
 const MEMORY_MAX_ACCEPTED_PATCHES = 80;
 const MEMORY_MAX_REJECTED_PATCHES = 80;
+const MEMORY_MAX_PATTERN_STATS = 40;
 const MEMORY_MAX_SELECTOR_HISTORY = 120;
 const MEMORY_MAX_ROUTE_HISTORY = 120;
 
@@ -1062,6 +1169,9 @@ async function suggestPatch(
   const policySource = resolvePolicySource(settings, policyMode, {
     applyThresholdOverride,
   });
+  const automationTrace = resolveAutomationTrace(settings, branchName, policyMode);
+  const requestedApply = Boolean(apply) || automationTrace.mode === 'auto_apply';
+  const applyRequestedByAutomation = !apply && automationTrace.mode === 'auto_apply';
   const memory = (await readRepoMemory(scan.repoPath)).memory;
   const issueLower = issue.toLowerCase();
   const artifactEvidence = await collectArtifactEvidence(scan.repoPath, reportDir, artifactPaths);
@@ -1135,15 +1245,18 @@ async function suggestPatch(
       settings.policy,
       relativeTarget,
       thresholdedConfidence,
-      Boolean(apply),
+      requestedApply,
       branchName,
       policyMode,
+      automationTrace,
       applyThresholdOverride
     );
     const shouldApply = policyDecision.shouldApply;
     const gatedReason = shouldApply
-      ? proposal.reason
-      : apply
+      ? applyRequestedByAutomation
+        ? `${proposal.reason} Auto-apply mode promoted this patch from dry-run to apply.`
+        : proposal.reason
+      : requestedApply
         ? `${proposal.reason} Apply request downgraded to dry-run.`
         : proposal.reason;
     const policyReason =
@@ -1187,6 +1300,9 @@ async function suggestPatch(
       policy: {
         mode: policyDecision.mode,
         source: policySource,
+        automationMode: policyDecision.automationMode,
+        automationSource: policyDecision.automationSource,
+        automationPattern: policyDecision.automationPattern,
         applyThreshold: policyDecision.applyThreshold,
         shouldApply: policyDecision.shouldApply,
         blockedReasons: policyDecision.blockedReasons,
@@ -1206,6 +1322,8 @@ async function rankPatchTargets(
   memory: AutoQaRepoMemory | null = null,
   issueHint: string = ''
 ) {
+  const issuePatterns = deriveLearningPatterns(issueHint, '', []);
+  const diffPatterns = deriveLearningPatternsFromDiffSignals(diffSignals);
   const scoredTargets = await Promise.all(
     targets.map(async (target) => {
       const absoluteTarget = resolveRepoRelativePath(repoPath, target);
@@ -1226,6 +1344,15 @@ async function rankPatchTargets(
         memory.selectorHistory.some((entry) => entry.sourceFile === target)
           ? 6
           : 0;
+      const patternAdjustment =
+        memory &&
+        memory.patternStats.length > 0
+          ? scorePatternPerformanceForTarget(
+              memory.patternStats,
+              dedupeStrings([...issuePatterns, ...diffPatterns]) as LearningPattern[],
+              inferTargetPatterns(content, target)
+            )
+          : 0;
       return {
         target,
         score:
@@ -1233,7 +1360,8 @@ async function rankPatchTargets(
           directMatchBoost +
           acceptedBoost +
           selectorHistoryBoost -
-          rejectedPenalty,
+          rejectedPenalty +
+          patternAdjustment,
       };
     })
   );
@@ -1485,11 +1613,14 @@ async function buildTargetedRunPlan(
     .map((entry) => entry.file);
 
   const warnings: string[] = [];
+  const warningCodes: ReasonCode[] = [];
   if (analysis.suggestedPatches.length === 0) {
-    warnings.push('No automatic patch suggestion was derived from the current diff.');
+    warnings.push(reasonDescription('no_patch_suggestion'));
+    warningCodes.push('no_patch_suggestion');
   }
   if (analysis.affectedTests.length === 0) {
-    warnings.push('No affected tests were inferred; manual QA review is recommended.');
+    warnings.push(reasonDescription('no_affected_tests'));
+    warningCodes.push('no_affected_tests');
   }
 
   return {
@@ -1515,6 +1646,7 @@ async function buildTargetedRunPlan(
     ],
     confidenceLevel: analysis.confidenceLevel,
     warnings,
+    warningCodes: dedupeReasonCodes(warningCodes),
   };
 }
 
@@ -1543,8 +1675,22 @@ function buildNoChangesDiffSource(
 function buildNoChangesSummaryLines(
   format: 'markdown' | 'github' | 'plain',
   header: string,
-  memorySummary: RepoMemorySummary
+  memorySummary: RepoMemorySummary,
+  metricsSummary: RepoMetricsSummary,
+  reasonCodes: ReasonCode[]
 ) {
+  const dedupedReasonCodes = dedupeReasonCodes(reasonCodes);
+  const reasonCodeLines = dedupedReasonCodes.length
+    ? dedupedReasonCodes.map((code) => `- \`${code}\`: ${reasonDescription(code)}`)
+    : ['- none'];
+  const patternLines = memorySummary.topPatternSignals.length
+    ? memorySummary.topPatternSignals.map(
+        (entry) =>
+          `- \`${entry.pattern}\`: attempts=${entry.attempts}, accept=${Math.round(
+            entry.acceptanceRate * 100
+          )}%, re-break=${Math.round(entry.rebreakRate * 100)}%`
+      )
+    : ['- none'];
   const memoryLines = memorySummary.topFailingTests.length
     ? memorySummary.topFailingTests.map((entry) => `- \`${entry.file}\` (${entry.count})`)
     : ['- none'];
@@ -1553,7 +1699,16 @@ function buildNoChangesSummaryLines(
     return [
       header,
       'No changes detected for the selected diff scope.',
+      `Reason codes: ${formatReasonCodeInline(dedupedReasonCodes)}`,
+      `Memory confidence: ${memorySummary.confidenceHint} (${memorySummary.confidenceExplanation})`,
       `Memory: ${memorySummary.failedRuns} failed run(s), ${memorySummary.acceptedPatches} accepted patch(es), ${memorySummary.rejectedPatches} rejected patch(es)`,
+      metricsSummary.available
+        ? `Metrics: accept=${Math.round(metricsSummary.acceptedSuggestionRate * 100)}%, verify=${Math.round(
+            metricsSummary.verifyPassRate * 100
+          )}%, re-break=${Math.round(metricsSummary.rebreakRate * 100)}%, skipped=${Math.round(
+            metricsSummary.skippedByPolicyRatio * 100
+          )}%`
+        : 'Metrics: no samples yet',
     ];
   }
 
@@ -1574,6 +1729,7 @@ function buildNoChangesSummaryLines(
       '<summary>No changes</summary>',
       '',
       '- No changes detected for the selected diff scope.',
+      ...reasonCodeLines,
       '',
       '</details>',
       '',
@@ -1584,6 +1740,14 @@ function buildNoChangesSummaryLines(
       `- Accepted patches: ${memorySummary.acceptedPatches}`,
       `- Rejected patches: ${memorySummary.rejectedPatches}`,
       `- Known flaky tests: ${memorySummary.knownFlakyTests}`,
+      `- Memory confidence: ${memorySummary.confidenceHint}`,
+      `- Confidence note: ${memorySummary.confidenceExplanation}`,
+      `- Metrics sample count: ${metricsSummary.sampleCount}`,
+      `- Accepted suggestion rate: ${Math.round(metricsSummary.acceptedSuggestionRate * 100)}%`,
+      `- Verify pass rate: ${Math.round(metricsSummary.verifyPassRate * 100)}%`,
+      `- Re-break rate: ${Math.round(metricsSummary.rebreakRate * 100)}%`,
+      `- Skipped-by-policy ratio: ${Math.round(metricsSummary.skippedByPolicyRatio * 100)}%`,
+      ...patternLines,
       ...memoryLines,
       '',
       '</details>',
@@ -1597,11 +1761,22 @@ function buildNoChangesSummaryLines(
     '',
     '- No changes detected for the selected diff scope.',
     '',
+    '### Reason codes',
+    ...reasonCodeLines,
+    '',
     '### Repo memory',
     `- Failed runs: ${memorySummary.failedRuns}`,
     `- Accepted patches: ${memorySummary.acceptedPatches}`,
     `- Rejected patches: ${memorySummary.rejectedPatches}`,
     `- Known flaky tests: ${memorySummary.knownFlakyTests}`,
+    `- Memory confidence: ${memorySummary.confidenceHint}`,
+    `- Confidence note: ${memorySummary.confidenceExplanation}`,
+    `- Metrics sample count: ${metricsSummary.sampleCount}`,
+    `- Accepted suggestion rate: ${Math.round(metricsSummary.acceptedSuggestionRate * 100)}%`,
+    `- Verify pass rate: ${Math.round(metricsSummary.verifyPassRate * 100)}%`,
+    `- Re-break rate: ${Math.round(metricsSummary.rebreakRate * 100)}%`,
+    `- Skipped-by-policy ratio: ${Math.round(metricsSummary.skippedByPolicyRatio * 100)}%`,
+    ...patternLines,
     ...memoryLines,
   ];
 }
@@ -1620,6 +1795,7 @@ async function buildCiSummary(
   const resolvedRepoPath = resolve(repoPath);
   const memory = (await readRepoMemory(resolvedRepoPath)).memory;
   const memorySummary = buildRepoMemorySummary(memory);
+  const metricsSummary = await readRepoMetricsSummary(resolvedRepoPath);
   let analysis: ImpactAnalysisResult;
   let runPlan: TargetedRunPlan;
 
@@ -1654,16 +1830,25 @@ async function buildCiSummary(
       diffSource.mode === 'working_tree'
         ? `Working tree QA summary (${diffSource.staged ? 'staged' : 'unstaged'})`
         : 'QA summary';
+    const noChangesReasonCodes: ReasonCode[] = ['no_changes'];
     return {
       repoPath: resolvedRepoPath,
       status: 'no_changes',
       format,
       diffSource,
-      summary: buildNoChangesSummaryLines(format, header, memorySummary).join('\n'),
+      summary: buildNoChangesSummaryLines(
+        format,
+        header,
+        memorySummary,
+        metricsSummary,
+        noChangesReasonCodes
+      ).join('\n'),
       affectedTests: [],
       suggestedRunTargets: [],
       changedFiles: [],
       memorySummary,
+      metricsSummary,
+      reasonCodes: noChangesReasonCodes,
     };
   }
 
@@ -1675,6 +1860,18 @@ async function buildCiSummary(
     analysis.diffSource.mode === 'working_tree'
       ? `Working tree QA summary (${analysis.diffSource.staged ? 'staged' : 'unstaged'})`
       : 'QA summary';
+  const summaryReasonCodes = dedupeReasonCodes(runPlan.warningCodes);
+  const reasonCodeLines = summaryReasonCodes.length
+    ? summaryReasonCodes.map((code) => `- \`${code}\`: ${reasonDescription(code)}`)
+    : ['- none'];
+  const patternSignalLines = memorySummary.topPatternSignals.length
+    ? memorySummary.topPatternSignals.map(
+        (entry) =>
+          `- \`${entry.pattern}\`: attempts=${entry.attempts}, accept=${Math.round(
+            entry.acceptanceRate * 100
+          )}%, re-break=${Math.round(entry.rebreakRate * 100)}%`
+      )
+    : ['- none'];
 
   let lines: string[];
   if (format === 'plain') {
@@ -1685,7 +1882,16 @@ async function buildCiSummary(
       `Highest-risk test: ${highestRisk}`,
       `Run first: ${highestPriority.join(', ') || 'manual review'}`,
       `Auto-fix: ${autoFix ? `${autoFix.targetFile} - ${autoFix.reason}` : 'none'}`,
+      `Reason codes: ${formatReasonCodeInline(summaryReasonCodes)}`,
+      `Memory confidence: ${memorySummary.confidenceHint} (${memorySummary.confidenceExplanation})`,
       `Memory: ${memorySummary.failedRuns} failed run(s), ${memorySummary.acceptedPatches} accepted patch(es)`,
+      metricsSummary.available
+        ? `Metrics: accept=${Math.round(metricsSummary.acceptedSuggestionRate * 100)}%, verify=${Math.round(
+            metricsSummary.verifyPassRate * 100
+          )}%, re-break=${Math.round(metricsSummary.rebreakRate * 100)}%, skipped=${Math.round(
+            metricsSummary.skippedByPolicyRatio * 100
+          )}%`
+        : 'Metrics: no samples yet',
     ];
   } else if (format === 'github') {
     lines = [
@@ -1723,6 +1929,14 @@ async function buildCiSummary(
       `- Accepted patches: ${memorySummary.acceptedPatches}`,
       `- Rejected patches: ${memorySummary.rejectedPatches}`,
       `- Known flaky tests: ${memorySummary.knownFlakyTests}`,
+      `- Memory confidence: ${memorySummary.confidenceHint}`,
+      `- Confidence note: ${memorySummary.confidenceExplanation}`,
+      `- Metrics sample count: ${metricsSummary.sampleCount}`,
+      `- Accepted suggestion rate: ${Math.round(metricsSummary.acceptedSuggestionRate * 100)}%`,
+      `- Verify pass rate: ${Math.round(metricsSummary.verifyPassRate * 100)}%`,
+      `- Re-break rate: ${Math.round(metricsSummary.rebreakRate * 100)}%`,
+      `- Skipped-by-policy ratio: ${Math.round(metricsSummary.skippedByPolicyRatio * 100)}%`,
+      ...patternSignalLines,
       ...(memorySummary.topFailingTests.length
         ? memorySummary.topFailingTests.map((entry) => `- \`${entry.file}\` (${entry.count})`)
         : ['- none']),
@@ -1735,6 +1949,9 @@ async function buildCiSummary(
       ...(runPlan.warnings.length
         ? runPlan.warnings.map((warning) => `- ${warning}`)
         : ['- No blocking warnings.']),
+      '',
+      'Reason codes:',
+      ...reasonCodeLines,
       '',
       '</details>',
       '',
@@ -1749,7 +1966,15 @@ async function buildCiSummary(
       `- Highest-risk test: ${highestRisk}`,
       `- Run first: ${highestPriority.join(', ') || 'manual review'}`,
       `- Auto-fix: ${autoFix ? `${autoFix.targetFile} (${Math.round(autoFix.confidence * 100)}%)` : 'none'}`,
+      `- Reason codes: ${formatReasonCodeInline(summaryReasonCodes)}`,
+      `- Memory confidence: ${memorySummary.confidenceHint}`,
+      `- Confidence note: ${memorySummary.confidenceExplanation}`,
       `- Memory: ${memorySummary.failedRuns} failed run(s), ${memorySummary.acceptedPatches} accepted patch(es)`,
+      `- Metrics sample count: ${metricsSummary.sampleCount}`,
+      `- Accepted suggestion rate: ${Math.round(metricsSummary.acceptedSuggestionRate * 100)}%`,
+      `- Verify pass rate: ${Math.round(metricsSummary.verifyPassRate * 100)}%`,
+      `- Re-break rate: ${Math.round(metricsSummary.rebreakRate * 100)}%`,
+      `- Skipped-by-policy ratio: ${Math.round(metricsSummary.skippedByPolicyRatio * 100)}%`,
       '',
       '### Suggested run targets',
       ...(analysis.suggestedRunTargets.length
@@ -1773,6 +1998,8 @@ async function buildCiSummary(
     suggestedRunTargets: analysis.suggestedRunTargets,
     changedFiles: analysis.changedFiles,
     memorySummary,
+    metricsSummary,
+    reasonCodes: summaryReasonCodes,
   };
 }
 
@@ -1789,7 +2016,9 @@ async function executeRunPlan(
   sampleLimit: number
 ): Promise<RunPlanExecution> {
   const settings = await loadRepoSettings(repoPath);
+  const branchName = await readCurrentBranch(repoPath);
   const policySource = resolvePolicySource(settings, policyMode);
+  const automationTrace = resolveAutomationTrace(settings, branchName, policyMode);
   const runPlan = await buildTargetedRunPlan(
     repoPath,
     changedFiles,
@@ -1806,6 +2035,32 @@ async function executeRunPlan(
   const policyCap = policyMode === 'enforce' || policyMode === 'auto'
     ? settings.policy.testBudget.maxTests
     : maxTests;
+  const automationBlocksExecution =
+    automationTrace.mode === 'report_only' || automationTrace.mode === 'suggest_only';
+  const blockedReasons: string[] = [];
+  const blockedReasonCodes: PolicyReasonCode[] = [];
+  if (maxTests > policyCap) {
+    blockedReasons.push(`test budget capped requested ${maxTests} -> ${policyCap}`);
+    blockedReasonCodes.push('test_budget_capped');
+  }
+  if (automationBlocksExecution) {
+    if (automationTrace.mode === 'report_only' &&
+      (automationTrace.source === 'legacy_report_only_branch' || automationTrace.source === 'cli_override')) {
+      blockedReasons.push(
+        policyMode === 'report_only'
+          ? 'CLI policyMode=report_only disabled execution'
+          : `branch ${branchName} is configured as report_only`
+      );
+      blockedReasonCodes.push('branch_report_only');
+    } else {
+      const details =
+        automationTrace.source === 'branch_override' && automationTrace.pattern
+          ? ` via branch override (${automationTrace.pattern})`
+          : '';
+      blockedReasons.push(`automation mode ${automationTrace.mode} disabled execution${details}`);
+      blockedReasonCodes.push('automation_mode_blocked');
+    }
+  }
   const selectedTests = (highestPriority.length ? highestPriority : secondary).slice(
     0,
     Math.min(maxTests, policyCap)
@@ -1813,16 +2068,42 @@ async function executeRunPlan(
   const policyTrace: PolicyTrace = {
     mode: policyMode,
     source: policySource,
+    automationMode: automationTrace.mode,
+    automationSource: automationTrace.source,
+    ...(automationTrace.pattern ? { automationPattern: automationTrace.pattern } : {}),
     applyThreshold: settings.policy.confidenceThresholds.apply,
     verifyThreshold: settings.policy.confidenceThresholds.verify,
     maxTestsRequested: maxTests,
     maxTestsApplied: Math.min(maxTests, policyCap),
-    blockedReasons:
-      maxTests > policyCap ? [`test budget capped requested ${maxTests} -> ${policyCap}`] : [],
-    blockedReasonCodes: maxTests > policyCap ? ['test_budget_capped'] : [],
+    blockedReasons: dedupeStrings(blockedReasons),
+    blockedReasonCodes: dedupeStrings(blockedReasonCodes) as PolicyReasonCode[],
   };
 
-  return executePlaywrightTests(repoPath, selectedTests, policyTrace);
+  const executionResult: RunPlanExecution = automationBlocksExecution
+    ? {
+      repoPath: resolve(repoPath),
+      command: [],
+      tests: [],
+      executed: false,
+      exitCode: 0,
+      status: 'skipped',
+      stdout: '',
+      stderr: `Run execution skipped by automation mode ${automationTrace.mode}.`,
+      blockedReasons: policyTrace.blockedReasons,
+      blockedReasonCodes: policyTrace.blockedReasonCodes,
+      policy: policyTrace,
+    }
+    : await executePlaywrightTests(repoPath, selectedTests, policyTrace);
+
+  await updateRepoMetricsAfterRunPlan(repoPath, executionResult).catch((error) => {
+    console.error(
+      `[autoqa][metrics] failed to persist run-plan metrics: ${
+        error instanceof Error ? error.message : String(error)
+      }`
+    );
+  });
+
+  return executionResult;
 }
 
 async function executePlaywrightTests(
@@ -1964,9 +2245,34 @@ async function verifyPatch(
           settings.policy.confidenceThresholds.verify
         )
       : 0;
-  const verifyAllowed = patchConfidence >= verifyThreshold;
+  const automationBlocksVerification =
+    patch.policy.automationMode === 'report_only' || patch.policy.automationMode === 'suggest_only';
+  const verifyAllowed = !automationBlocksVerification && patchConfidence >= verifyThreshold;
   const verifyBlockedReasons = [...patch.blockedReasons];
   const verifyBlockedReasonCodes = [...patch.blockedReasonCodes];
+  if (automationBlocksVerification) {
+    if (
+      patch.policy.automationMode === 'report_only' &&
+      (patch.policy.automationSource === 'legacy_report_only_branch' ||
+        patch.policy.automationSource === 'cli_override')
+    ) {
+      verifyBlockedReasons.push(
+        policyMode === 'report_only'
+          ? 'CLI policyMode=report_only disabled verify execution'
+          : 'branch policy configured report_only verify behavior'
+      );
+      verifyBlockedReasonCodes.push('branch_report_only');
+    } else {
+      const details =
+        patch.policy.automationSource === 'branch_override' && patch.policy.automationPattern
+          ? ` via branch override (${patch.policy.automationPattern})`
+          : '';
+      verifyBlockedReasons.push(
+        `automation mode ${patch.policy.automationMode} disabled verify execution${details}`
+      );
+      verifyBlockedReasonCodes.push('automation_mode_blocked');
+    }
+  }
   if (maxTests > policyCappedMaxTests) {
     verifyBlockedReasons.push(`test budget capped requested ${maxTests} -> ${policyCappedMaxTests}`);
     verifyBlockedReasonCodes.push('test_budget_capped');
@@ -1980,6 +2286,9 @@ async function verifyPatch(
   const verifyPolicyTrace: PolicyTrace = {
     mode: policyMode,
     source: policySource,
+    automationMode: patch.policy.automationMode,
+    automationSource: patch.policy.automationSource,
+    ...(patch.policy.automationPattern ? { automationPattern: patch.policy.automationPattern } : {}),
     applyThreshold: patch.policy.applyThreshold,
     verifyThreshold,
     shouldApply: patch.applied,
@@ -2017,7 +2326,9 @@ async function verifyPatch(
         exitCode: 0,
         status: 'skipped' as const,
         stdout: '',
-        stderr: 'Patch was not applied (confidence threshold or policy block).',
+        stderr: automationBlocksVerification
+          ? `Patch verify skipped by automation mode ${patch.policy.automationMode}.`
+          : 'Patch was not applied (confidence threshold or policy block).',
         blockedReasons: verifyPolicyTrace.blockedReasons,
         blockedReasonCodes: verifyPolicyTrace.blockedReasonCodes,
         policy: verifyPolicyTrace,
@@ -2055,6 +2366,19 @@ async function verifyPatch(
   }).catch((error) => {
     console.error(
       `[autoqa][memory] failed to persist verification memory: ${
+        error instanceof Error ? error.message : String(error)
+      }`
+    );
+  });
+
+  await updateRepoMetricsAfterVerification(repoPath, {
+    patch,
+    status: verificationStatus,
+    execution,
+    blockedReasonCodes: verifyPolicyTrace.blockedReasonCodes,
+  }).catch((error) => {
+    console.error(
+      `[autoqa][metrics] failed to persist verification metrics: ${
         error instanceof Error ? error.message : String(error)
       }`
     );
@@ -2108,6 +2432,9 @@ async function writeVerificationReport(
     '',
     `- mode: ${payload.policy.mode}`,
     `- source: ${payload.policy.source}`,
+    `- automation mode: ${payload.policy.automationMode}`,
+    `- automation source: ${payload.policy.automationSource}`,
+    `- automation pattern: ${payload.policy.automationPattern ?? 'n/a'}`,
     `- apply threshold: ${payload.policy.applyThreshold.toFixed(2)}`,
     `- verify threshold: ${payload.policy.verifyThreshold?.toFixed(2) ?? 'n/a'}`,
     `- should apply: ${payload.policy.shouldApply ? 'yes' : 'no'}`,
@@ -2158,8 +2485,36 @@ function createEmptyRepoMemory(repoPath: string): AutoQaRepoMemory {
     recentFailures: [],
     acceptedPatches: [],
     rejectedPatches: [],
+    patternStats: [],
     selectorHistory: [],
     routeHistory: [],
+  };
+}
+
+function createEmptyRepoMetrics(repoPath: string): AutoQaRepoMetrics {
+  return {
+    schemaVersion: MEMORY_SCHEMA_VERSION,
+    updatedAt: new Date().toISOString(),
+    repoFingerprint: createRepoFingerprint(repoPath),
+    suggestions: {
+      attempted: 0,
+      applied: 0,
+      blocked: 0,
+    },
+    verify: {
+      total: 0,
+      passed: 0,
+      failed: 0,
+      skipped: 0,
+    },
+    execution: {
+      total: 0,
+      skippedByPolicy: 0,
+    },
+    rebreaks: {
+      total: 0,
+      detected: 0,
+    },
   };
 }
 
@@ -2191,6 +2546,18 @@ function sanitizeMemoryRecord(input: unknown, repoPath: string): AutoQaRepoMemor
       : [],
     rejectedPatches: Array.isArray(value.rejectedPatches)
       ? value.rejectedPatches.filter((entry): entry is MemoryPatchRecord => Boolean(entry && typeof entry === 'object'))
+      : [],
+    patternStats: Array.isArray(value.patternStats)
+      ? value.patternStats
+          .filter((entry): entry is MemoryPatternStat => Boolean(entry && typeof entry === 'object'))
+          .map((entry) => ({
+            pattern: isLearningPattern(entry.pattern) ? entry.pattern : 'unknown',
+            attempts: Math.max(0, Math.floor(Number(entry.attempts) || 0)),
+            accepted: Math.max(0, Math.floor(Number(entry.accepted) || 0)),
+            failed: Math.max(0, Math.floor(Number(entry.failed) || 0)),
+            rebreaks: Math.max(0, Math.floor(Number(entry.rebreaks) || 0)),
+            lastUpdated: typeof entry.lastUpdated === 'string' ? entry.lastUpdated : fallback.updatedAt,
+          }))
       : [],
     selectorHistory: Array.isArray(value.selectorHistory)
       ? value.selectorHistory.filter((entry): entry is MemorySelectorHistoryEntry => Boolean(entry && typeof entry === 'object'))
@@ -2230,11 +2597,48 @@ async function readRepoMemory(repoPath: string) {
   }
 }
 
+async function readRepoMetrics(repoPath: string) {
+  const stateDir = join(resolve(repoPath), '.autoqa', 'state');
+  const metricsPath = join(stateDir, 'metrics.json');
+  const raw = await readFile(metricsPath, 'utf8').catch(() => null);
+
+  if (!raw) {
+    return {
+      metricsPath,
+      metrics: createEmptyRepoMetrics(repoPath),
+      existed: false,
+    };
+  }
+
+  try {
+    const parsed = JSON.parse(raw);
+    return {
+      metricsPath,
+      metrics: sanitizeMetricsRecord(parsed, repoPath),
+      existed: true,
+    };
+  } catch {
+    return {
+      metricsPath,
+      metrics: createEmptyRepoMetrics(repoPath),
+      existed: false,
+    };
+  }
+}
+
 const localRepoMemoryAdapter: RepoMemoryAdapter = {
   read: readRepoMemory,
   async write(_repoPath: string, memoryPath: string, memory: AutoQaRepoMemory) {
     await mkdir(dirname(memoryPath), { recursive: true });
     await writeFile(memoryPath, `${JSON.stringify(memory, null, 2)}\n`, 'utf8');
+  },
+};
+
+const localRepoMetricsAdapter: RepoMetricsAdapter = {
+  read: readRepoMetrics,
+  async write(_repoPath: string, metricsPath: string, metrics: AutoQaRepoMetrics) {
+    await mkdir(dirname(metricsPath), { recursive: true });
+    await writeFile(metricsPath, `${JSON.stringify(metrics, null, 2)}\n`, 'utf8');
   },
 };
 
@@ -2244,6 +2648,50 @@ function trimToSize<T>(items: T[], max: number) {
   }
 
   return items.slice(items.length - max);
+}
+
+function upsertPatternStats(
+  stats: MemoryPatternStat[],
+  patterns: LearningPattern[],
+  status: 'passed' | 'failed' | 'skipped',
+  rebreakDetected: boolean,
+  timestamp: string
+) {
+  const next = new Map<LearningPattern, MemoryPatternStat>();
+
+  for (const entry of stats) {
+    next.set(entry.pattern, { ...entry });
+  }
+
+  for (const pattern of dedupeStrings(patterns) as LearningPattern[]) {
+    const current = next.get(pattern) ?? {
+      pattern,
+      attempts: 0,
+      accepted: 0,
+      failed: 0,
+      rebreaks: 0,
+      lastUpdated: timestamp,
+    };
+
+    current.attempts += 1;
+    if (status === 'passed') {
+      current.accepted += 1;
+    } else if (status === 'failed') {
+      current.failed += 1;
+      if (rebreakDetected) {
+        current.rebreaks += 1;
+      }
+    }
+    current.lastUpdated = timestamp;
+    next.set(pattern, current);
+  }
+
+  return Array.from(next.values()).sort(
+    (left, right) =>
+      right.lastUpdated.localeCompare(left.lastUpdated) ||
+      right.attempts - left.attempts ||
+      left.pattern.localeCompare(right.pattern)
+  );
 }
 
 function extractReplacementHistory(
@@ -2277,6 +2725,11 @@ async function writeRepoMemoryAfterVerification(
   const { memoryPath, memory } = await localRepoMemoryAdapter.read(repoPath);
   const now = new Date().toISOString();
   const evidenceKinds = Array.from(new Set(verification.evidenceUsed.map((item) => item.kind)));
+  const learningPatterns = deriveLearningPatterns(issue, verification.patch.reason, evidenceKinds);
+  const hadPriorAcceptedPatch = memory.acceptedPatches.some(
+    (entry) => entry.targetFile === verification.patch.targetFile
+  );
+  const rebreakDetected = verification.status === 'failed' && hadPriorAcceptedPatch;
   const tests = verification.execution.tests;
   const failureRecord: MemoryFailureRecord = {
     timestamp: now,
@@ -2288,6 +2741,7 @@ async function writeRepoMemoryAfterVerification(
     timestamp: now,
     issue,
     targetFile: verification.patch.targetFile,
+    patterns: learningPatterns,
     confidenceLevel: verification.patch.confidenceLevel,
     applied: verification.patch.applied,
     status: verification.status,
@@ -2309,6 +2763,10 @@ async function writeRepoMemoryAfterVerification(
       verification.status !== 'passed'
         ? trimToSize([...memory.rejectedPatches, patchRecord], MEMORY_MAX_REJECTED_PATCHES)
         : memory.rejectedPatches,
+    patternStats: trimToSize(
+      upsertPatternStats(memory.patternStats, learningPatterns, verification.status, rebreakDetected, now),
+      MEMORY_MAX_PATTERN_STATS
+    ),
     selectorHistory: trimToSize(
       [...memory.selectorHistory, ...extractReplacementHistory(verification.patch, verification.patch.targetFile, 'selector')],
       MEMORY_MAX_SELECTOR_HISTORY
@@ -2320,6 +2778,76 @@ async function writeRepoMemoryAfterVerification(
   };
 
   await localRepoMemoryAdapter.write(repoPath, memoryPath, nextMemory);
+}
+
+async function updateRepoMetricsAfterRunPlan(repoPath: string, execution: RunPlanExecution) {
+  const { metricsPath, metrics } = await localRepoMetricsAdapter.read(repoPath);
+  const skippedByPolicy =
+    execution.status === 'skipped' &&
+    execution.blockedReasonCodes.some((code) =>
+      ['branch_report_only', 'automation_mode_blocked', 'test_budget_capped'].includes(code)
+    );
+
+  const next: AutoQaRepoMetrics = {
+    ...metrics,
+    schemaVersion: MEMORY_SCHEMA_VERSION,
+    updatedAt: new Date().toISOString(),
+    repoFingerprint: createRepoFingerprint(repoPath),
+    execution: {
+      total: metrics.execution.total + 1,
+      skippedByPolicy: metrics.execution.skippedByPolicy + (skippedByPolicy ? 1 : 0),
+    },
+  };
+
+  await localRepoMetricsAdapter.write(repoPath, metricsPath, next);
+}
+
+async function updateRepoMetricsAfterVerification(
+  repoPath: string,
+  payload: {
+    patch: SuggestedPatch;
+    status: PatchVerification['status'];
+    execution: RunPlanExecution;
+    blockedReasonCodes: PolicyReasonCode[];
+  }
+) {
+  const { metricsPath, metrics } = await localRepoMetricsAdapter.read(repoPath);
+  const rebreakDetected = payload.status === 'failed' && payload.patch.applied;
+  const skippedByPolicy =
+    payload.execution.status === 'skipped' &&
+    payload.blockedReasonCodes.some((code) =>
+      ['branch_report_only', 'automation_mode_blocked', 'test_budget_capped', 'below_verify_threshold'].includes(
+        code
+      )
+    );
+
+  const next: AutoQaRepoMetrics = {
+    ...metrics,
+    schemaVersion: MEMORY_SCHEMA_VERSION,
+    updatedAt: new Date().toISOString(),
+    repoFingerprint: createRepoFingerprint(repoPath),
+    suggestions: {
+      attempted: metrics.suggestions.attempted + 1,
+      applied: metrics.suggestions.applied + (payload.patch.applied ? 1 : 0),
+      blocked: metrics.suggestions.blocked + (payload.patch.blockedReasonCodes.length > 0 ? 1 : 0),
+    },
+    verify: {
+      total: metrics.verify.total + 1,
+      passed: metrics.verify.passed + (payload.status === 'passed' ? 1 : 0),
+      failed: metrics.verify.failed + (payload.status === 'failed' ? 1 : 0),
+      skipped: metrics.verify.skipped + (payload.status === 'skipped' ? 1 : 0),
+    },
+    execution: {
+      total: metrics.execution.total + 1,
+      skippedByPolicy: metrics.execution.skippedByPolicy + (skippedByPolicy ? 1 : 0),
+    },
+    rebreaks: {
+      total: metrics.rebreaks.total + (payload.patch.applied ? 1 : 0),
+      detected: metrics.rebreaks.detected + (rebreakDetected ? 1 : 0),
+    },
+  };
+
+  await localRepoMetricsAdapter.write(repoPath, metricsPath, next);
 }
 
 async function resolveDirectoryPath(inputPath: string) {
@@ -2624,6 +3152,90 @@ function detectArtifactKind(text: string): ArtifactEvidenceKind {
   return 'unknown';
 }
 
+function mapArtifactKindToLearningPattern(kind: ArtifactEvidenceKind): LearningPattern {
+  switch (kind) {
+    case 'selector_drift':
+      return 'selector';
+    case 'text_drift':
+      return 'text';
+    case 'navigation_drift':
+      return 'navigation';
+    case 'timing_issue':
+      return 'timing';
+    case 'auth_issue':
+      return 'auth';
+    case 'fixture_issue':
+      return 'fixture';
+    default:
+      return 'unknown';
+  }
+}
+
+function deriveLearningPatterns(
+  issue: string,
+  patchReason: string,
+  evidenceKinds: ArtifactEvidenceKind[]
+): LearningPattern[] {
+  const patterns = new Set<LearningPattern>();
+  const combined = `${issue} ${patchReason}`.toLowerCase();
+
+  if (
+    combined.includes('selector') ||
+    combined.includes('locator') ||
+    combined.includes('getbyrole') ||
+    combined.includes('getbytestid')
+  ) {
+    patterns.add('selector');
+  }
+  if (
+    combined.includes('text') ||
+    combined.includes('label') ||
+    combined.includes('copy') ||
+    combined.includes('tohavetext')
+  ) {
+    patterns.add('text');
+  }
+  if (
+    combined.includes('route') ||
+    combined.includes('navigation') ||
+    combined.includes('page.goto') ||
+    combined.includes('href') ||
+    combined.includes('url')
+  ) {
+    patterns.add('navigation');
+  }
+  if (
+    combined.includes('timeout') ||
+    combined.includes('timing') ||
+    combined.includes('networkidle') ||
+    combined.includes('waitfor')
+  ) {
+    patterns.add('timing');
+  }
+  if (
+    combined.includes('auth') ||
+    combined.includes('token') ||
+    combined.includes('unauthorized') ||
+    combined.includes('401') ||
+    combined.includes('403')
+  ) {
+    patterns.add('auth');
+  }
+  if (combined.includes('fixture') || combined.includes('beforeeach') || combined.includes('setup')) {
+    patterns.add('fixture');
+  }
+
+  for (const kind of evidenceKinds) {
+    patterns.add(mapArtifactKindToLearningPattern(kind));
+  }
+
+  if (patterns.size === 0) {
+    patterns.add('unknown');
+  }
+
+  return Array.from(patterns);
+}
+
 function buildSnippet(text: string) {
   return text
     .replace(/\s+/g, ' ')
@@ -2897,6 +3509,113 @@ function derivePatchIssuesFromChanges(changedFiles: string[], diffSignals: DiffS
   return dedupeStrings(issues);
 }
 
+function deriveLearningPatternsFromDiffSignals(diffSignals: DiffSignal[]): LearningPattern[] {
+  const patterns = new Set<LearningPattern>();
+
+  for (const signal of diffSignals) {
+    if (signal.changeTypes.includes('selector')) {
+      patterns.add('selector');
+    }
+    if (signal.changeTypes.includes('text')) {
+      patterns.add('text');
+    }
+    if (signal.changeTypes.includes('navigation')) {
+      patterns.add('navigation');
+    }
+  }
+
+  if (!patterns.size) {
+    patterns.add('unknown');
+  }
+
+  return Array.from(patterns);
+}
+
+function inferTargetPatterns(content: string, targetFile: string): LearningPattern[] {
+  const normalized = `${targetFile} ${content}`.toLowerCase();
+  const patterns = new Set<LearningPattern>();
+
+  if (
+    normalized.includes('locator(') ||
+    normalized.includes('getbyrole') ||
+    normalized.includes('getbytestid') ||
+    normalized.includes('data-testid')
+  ) {
+    patterns.add('selector');
+  }
+  if (
+    normalized.includes('tohavetext') ||
+    normalized.includes('getbytext') ||
+    normalized.includes('label') ||
+    normalized.includes('text')
+  ) {
+    patterns.add('text');
+  }
+  if (
+    normalized.includes('page.goto') ||
+    normalized.includes('url') ||
+    normalized.includes('href') ||
+    normalized.includes('navigation')
+  ) {
+    patterns.add('navigation');
+  }
+  if (
+    normalized.includes('timeout') ||
+    normalized.includes('networkidle') ||
+    normalized.includes('waitfor')
+  ) {
+    patterns.add('timing');
+  }
+  if (
+    normalized.includes('auth') ||
+    normalized.includes('login') ||
+    normalized.includes('token') ||
+    normalized.includes('unauthorized')
+  ) {
+    patterns.add('auth');
+  }
+  if (
+    normalized.includes('fixture') ||
+    normalized.includes('beforeeach') ||
+    normalized.includes('setup')
+  ) {
+    patterns.add('fixture');
+  }
+
+  if (!patterns.size) {
+    patterns.add('unknown');
+  }
+
+  return Array.from(patterns);
+}
+
+function scorePatternPerformanceForTarget(
+  stats: MemoryPatternStat[],
+  hintPatterns: LearningPattern[],
+  targetPatterns: LearningPattern[]
+) {
+  const hintSet = new Set(hintPatterns);
+  const targetSet = new Set(targetPatterns);
+  let score = 0;
+
+  for (const stat of stats) {
+    if (!hintSet.has(stat.pattern) || !targetSet.has(stat.pattern)) {
+      continue;
+    }
+
+    if (stat.attempts < 2) {
+      continue;
+    }
+
+    const acceptanceRate = stat.accepted / stat.attempts;
+    const rebreakRate = stat.rebreaks / stat.attempts;
+    const performance = acceptanceRate - rebreakRate * 1.25 - 0.45;
+    score += Math.max(-1, Math.min(1, performance)) * 4;
+  }
+
+  return score;
+}
+
 function buildSemanticPatchProposal(
   content: string,
   diffSignals: DiffSignal[],
@@ -3129,6 +3848,22 @@ function dedupeStrings(values: string[]) {
   return Array.from(new Set(values));
 }
 
+function dedupeReasonCodes(values: ReasonCode[]) {
+  return Array.from(new Set(values));
+}
+
+function reasonDescription(code: ReasonCode) {
+  return REASON_CODE_DESCRIPTIONS[code];
+}
+
+function formatReasonCodeInline(codes: ReasonCode[]) {
+  if (!codes.length) {
+    return 'none';
+  }
+
+  return dedupeReasonCodes(codes).join(', ');
+}
+
 function confidenceLevelFromValue(value: number): ConfidenceLevel {
   if (value >= 0.85) {
     return 'high';
@@ -3173,6 +3908,47 @@ function createDefaultPolicy(): RepoPolicy {
     testBudget: {
       maxTests: 5,
     },
+    automation: {
+      mode: 'guarded_apply',
+      branchOverrides: [],
+    },
+  };
+}
+
+function sanitizeMetricsRecord(input: unknown, repoPath: string): AutoQaRepoMetrics {
+  const fallback = createEmptyRepoMetrics(repoPath);
+
+  if (!input || typeof input !== 'object') {
+    return fallback;
+  }
+
+  const value = input as Partial<AutoQaRepoMetrics>;
+  return {
+    schemaVersion: MEMORY_SCHEMA_VERSION,
+    updatedAt: typeof value.updatedAt === 'string' ? value.updatedAt : fallback.updatedAt,
+    repoFingerprint:
+      typeof value.repoFingerprint === 'string' && value.repoFingerprint.length > 0
+        ? value.repoFingerprint
+        : fallback.repoFingerprint,
+    suggestions: {
+      attempted: Math.max(0, Math.floor(Number(value.suggestions?.attempted) || 0)),
+      applied: Math.max(0, Math.floor(Number(value.suggestions?.applied) || 0)),
+      blocked: Math.max(0, Math.floor(Number(value.suggestions?.blocked) || 0)),
+    },
+    verify: {
+      total: Math.max(0, Math.floor(Number(value.verify?.total) || 0)),
+      passed: Math.max(0, Math.floor(Number(value.verify?.passed) || 0)),
+      failed: Math.max(0, Math.floor(Number(value.verify?.failed) || 0)),
+      skipped: Math.max(0, Math.floor(Number(value.verify?.skipped) || 0)),
+    },
+    execution: {
+      total: Math.max(0, Math.floor(Number(value.execution?.total) || 0)),
+      skippedByPolicy: Math.max(0, Math.floor(Number(value.execution?.skippedByPolicy) || 0)),
+    },
+    rebreaks: {
+      total: Math.max(0, Math.floor(Number(value.rebreaks?.total) || 0)),
+      detected: Math.max(0, Math.floor(Number(value.rebreaks?.detected) || 0)),
+    },
   };
 }
 
@@ -3192,9 +3968,74 @@ function resolvePolicySource(
   return settings.policySource;
 }
 
+function summarizePatternSignals(stats: MemoryPatternStat[]) {
+  return stats
+    .filter((entry) => entry.attempts > 0)
+    .map((entry) => {
+      const acceptanceRate = entry.accepted / entry.attempts;
+      const rebreakRate = entry.rebreaks / entry.attempts;
+      const failureRate = entry.failed / entry.attempts;
+      const score = acceptanceRate - failureRate * 0.25 - rebreakRate * 1.25;
+      return {
+        pattern: entry.pattern,
+        attempts: entry.attempts,
+        acceptanceRate,
+        rebreakRate,
+        score,
+      };
+    })
+    .sort(
+      (left, right) =>
+        right.attempts - left.attempts ||
+        Math.abs(right.score) - Math.abs(left.score) ||
+        left.pattern.localeCompare(right.pattern)
+    );
+}
+
+function computeMemoryConfidence(
+  signals: Array<{ pattern: LearningPattern; attempts: number; acceptanceRate: number; rebreakRate: number; score: number }>
+): Pick<RepoMemorySummary, 'confidenceHint' | 'confidenceExplanation'> {
+  const totalAttempts = signals.reduce((acc, item) => acc + item.attempts, 0);
+  if (totalAttempts < 3) {
+    return {
+      confidenceHint: 'insufficient_data',
+      confidenceExplanation: 'Not enough memory samples yet; treat recommendations as exploratory.',
+    };
+  }
+
+  const weightedScore =
+    signals.reduce((acc, item) => acc + item.score * item.attempts, 0) / totalAttempts;
+  const overallRebreakRate =
+    signals.reduce((acc, item) => acc + item.rebreakRate * item.attempts, 0) / totalAttempts;
+  const topSignal = signals[0];
+
+  if (weightedScore >= 0.25 && overallRebreakRate <= 0.15) {
+    return {
+      confidenceHint: 'high',
+      confidenceExplanation: `Memory trends are stable (top pattern: ${topSignal.pattern}, ${Math.round(
+        topSignal.acceptanceRate * 100
+      )}% acceptance).`,
+    };
+  }
+
+  if (weightedScore >= 0) {
+    return {
+      confidenceHint: 'medium',
+      confidenceExplanation: `Memory trends are mixed; review ${topSignal.pattern} changes carefully.`,
+    };
+  }
+
+  return {
+    confidenceHint: 'low',
+    confidenceExplanation: `Recent memory signals are unstable (re-break risk elevated in ${topSignal.pattern}).`,
+  };
+}
+
 function buildRepoMemorySummary(memory: AutoQaRepoMemory): RepoMemorySummary {
   const failingCounts = new Map<string, number>();
   const failedRuns = memory.recentFailures.filter((entry) => entry.status === 'failed');
+  const patternSignals = summarizePatternSignals(memory.patternStats).slice(0, 3);
+  const confidence = computeMemoryConfidence(patternSignals);
 
   for (const failure of failedRuns) {
     for (const testFile of failure.tests) {
@@ -3208,6 +4049,9 @@ function buildRepoMemorySummary(memory: AutoQaRepoMemory): RepoMemorySummary {
     failedRuns: failedRuns.length,
     acceptedPatches: memory.acceptedPatches.length,
     rejectedPatches: memory.rejectedPatches.length,
+    confidenceHint: confidence.confidenceHint,
+    confidenceExplanation: confidence.confidenceExplanation,
+    topPatternSignals: patternSignals,
     topFailingTests: Array.from(failingCounts.entries())
       .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
       .slice(0, 3)
@@ -3241,17 +4085,99 @@ function matchesGlobLike(inputPath: string, pattern: string) {
   return new RegExp(`^${escaped}$`).test(normalizedPath);
 }
 
+function isAutomationMode(value: unknown): value is AutomationMode {
+  return (
+    value === 'report_only' ||
+    value === 'suggest_only' ||
+    value === 'guarded_apply' ||
+    value === 'auto_apply'
+  );
+}
+
+function isLearningPattern(value: unknown): value is LearningPattern {
+  return (
+    value === 'selector' ||
+    value === 'text' ||
+    value === 'navigation' ||
+    value === 'timing' ||
+    value === 'auth' ||
+    value === 'fixture' ||
+    value === 'unknown'
+  );
+}
+
 async function readCurrentBranch(repoPath: string) {
   return execFileAsync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: repoPath })
     .then(({ stdout }) => stdout.trim())
     .catch(() => '');
 }
 
-function isReportOnlyBranch(policy: RepoPolicy, branchName: string) {
+function findLegacyReportOnlyPattern(policy: RepoPolicy, branchName: string) {
   if (!branchName) {
-    return false;
+    return null;
   }
-  return policy.branch.reportOnly.some((pattern) => matchesGlobLike(branchName, pattern));
+  return policy.branch.reportOnly.find((pattern) => matchesGlobLike(branchName, pattern)) ?? null;
+}
+
+function resolveAutomationTrace(
+  settings: RepoSettings,
+  branchName: string,
+  policyMode: PolicyMode
+): { mode: AutomationMode; source: AutomationSource; pattern?: string } {
+  if (policyMode === 'report_only') {
+    return {
+      mode: 'report_only',
+      source: 'cli_override',
+    };
+  }
+
+  for (const override of settings.policy.automation.branchOverrides) {
+    if (matchesGlobLike(branchName, override.pattern)) {
+      return {
+        mode: override.mode,
+        source: 'branch_override',
+        pattern: override.pattern,
+      };
+    }
+  }
+
+  const legacyPattern = findLegacyReportOnlyPattern(settings.policy, branchName);
+  if (legacyPattern) {
+    return {
+      mode: 'report_only',
+      source: 'legacy_report_only_branch',
+      pattern: legacyPattern,
+    };
+  }
+
+  return {
+    mode: settings.policy.automation.mode,
+    source: settings.automationConfigSource,
+  };
+}
+
+function buildRepoMetricsSummary(metrics: AutoQaRepoMetrics): RepoMetricsSummary {
+  const suggestionSample = Math.max(0, metrics.suggestions.attempted);
+  const verifySample = Math.max(0, metrics.verify.total);
+  const rebreakSample = Math.max(0, metrics.rebreaks.total);
+  const executionSample = Math.max(0, metrics.execution.total);
+  const sampleCount = Math.max(suggestionSample, verifySample, executionSample);
+
+  return {
+    available: sampleCount > 0,
+    sampleCount,
+    acceptedSuggestionRate:
+      suggestionSample > 0 ? metrics.suggestions.applied / suggestionSample : 0,
+    verifyPassRate: verifySample > 0 ? metrics.verify.passed / verifySample : 0,
+    rebreakRate: rebreakSample > 0 ? metrics.rebreaks.detected / rebreakSample : 0,
+    skippedByPolicyRatio:
+      executionSample > 0 ? metrics.execution.skippedByPolicy / executionSample : 0,
+  };
+}
+
+async function readRepoMetricsSummary(repoPath: string): Promise<RepoMetricsSummary> {
+  const { metrics } = await localRepoMetricsAdapter.read(repoPath);
+  return buildRepoMetricsSummary(metrics);
 }
 
 function evaluatePatchPolicy(
@@ -3261,6 +4187,7 @@ function evaluatePatchPolicy(
   requestedApply: boolean,
   branchName: string,
   policyMode: PolicyMode,
+  automationTrace: { mode: AutomationMode; source: AutomationSource; pattern?: string },
   applyThresholdOverride?: number
 ) {
   const blockedReasons: string[] = [];
@@ -3271,7 +4198,7 @@ function evaluatePatchPolicy(
     policy.patchAllow.some((pattern) => matchesGlobLike(normalizedTarget, pattern));
   const denyHit = policy.patchDeny.some((pattern) => matchesGlobLike(normalizedTarget, pattern));
   const protectedHit = policy.protectedFiles.some((pattern) => matchesGlobLike(normalizedTarget, pattern));
-  const reportOnly = policyMode === 'report_only' || isReportOnlyBranch(policy, branchName);
+  const automationMode = automationTrace.mode;
   const applyThreshold =
     policyMode === 'enforce' || policyMode === 'auto'
       ? clamp01(applyThresholdOverride ?? policy.confidenceThresholds.apply, policy.confidenceThresholds.apply)
@@ -3289,13 +4216,26 @@ function evaluatePatchPolicy(
     blockedReasons.push(`target file matched protected file rule (${normalizedTarget})`);
     blockedReasonCodes.push('protected_file');
   }
-  if (reportOnly) {
-    blockedReasons.push(
-      policyMode === 'report_only'
-        ? 'CLI policyMode=report_only disabled apply'
-        : `branch ${branchName} is configured as report_only`
-    );
-    blockedReasonCodes.push('branch_report_only');
+  if (automationMode === 'suggest_only') {
+    blockedReasons.push('automation mode suggest_only disabled patch apply');
+    blockedReasonCodes.push('automation_mode_blocked');
+  }
+  if (automationMode === 'report_only') {
+    if (automationTrace.source === 'legacy_report_only_branch' || automationTrace.source === 'cli_override') {
+      blockedReasons.push(
+        policyMode === 'report_only'
+          ? 'CLI policyMode=report_only disabled apply'
+          : `branch ${branchName} is configured as report_only`
+      );
+      blockedReasonCodes.push('branch_report_only');
+    } else {
+      const sourceDetails =
+        automationTrace.source === 'branch_override' && automationTrace.pattern
+          ? ` via branch override (${automationTrace.pattern})`
+          : '';
+      blockedReasons.push(`automation mode report_only disabled patch apply${sourceDetails}`);
+      blockedReasonCodes.push('automation_mode_blocked');
+    }
   }
   if (requestedApply && confidence < applyThreshold) {
     blockedReasons.push(
@@ -3306,6 +4246,9 @@ function evaluatePatchPolicy(
 
   return {
     mode: policyMode,
+    automationMode,
+    automationSource: automationTrace.source,
+    automationPattern: automationTrace.pattern,
     applyThreshold,
     blockedReasons,
     blockedReasonCodes,
@@ -3346,6 +4289,7 @@ async function loadRepoSettings(repoPath: string): Promise<RepoSettings> {
     sourceDirectories: ['src'],
     policy: createDefaultPolicy(),
     policySource: 'default',
+    automationConfigSource: 'default',
   };
 
   const ignoreFile = await readFile(join(repoPath, '.autoqaignore'), 'utf8').catch(() => '');
@@ -3384,12 +4328,33 @@ async function loadRepoSettings(repoPath: string): Promise<RepoSettings> {
         testBudget?: {
           maxTests?: number;
         };
+        automation?: {
+          mode?: AutomationMode;
+          branchOverrides?: Array<{
+            pattern?: string;
+            mode?: AutomationMode;
+          }>;
+        };
       };
     }>;
 
     const parsedPolicy = parsed.policy ?? {};
     const basePolicy = createDefaultPolicy();
     const hasPolicyConfig = Boolean(parsed.policy && typeof parsed.policy === 'object');
+    const parsedAutomationMode = isAutomationMode(parsedPolicy.automation?.mode)
+      ? parsedPolicy.automation?.mode
+      : basePolicy.automation.mode;
+    const parsedBranchOverrides = Array.isArray(parsedPolicy.automation?.branchOverrides)
+      ? parsedPolicy.automation?.branchOverrides
+          .filter((entry): entry is { pattern: string; mode: AutomationMode } =>
+            Boolean(entry?.pattern) && isAutomationMode(entry?.mode)
+          )
+          .map((entry) => ({
+            pattern: entry.pattern.trim(),
+            mode: entry.mode,
+          }))
+          .filter((entry) => entry.pattern.length > 0)
+      : basePolicy.automation.branchOverrides;
     const policy: RepoPolicy = {
       patchAllow: Array.isArray(parsedPolicy.patchAllow) ? parsedPolicy.patchAllow : basePolicy.patchAllow,
       patchDeny: Array.isArray(parsedPolicy.patchDeny) ? parsedPolicy.patchDeny : basePolicy.patchDeny,
@@ -3412,6 +4377,10 @@ async function loadRepoSettings(repoPath: string): Promise<RepoSettings> {
             ? Math.max(1, Math.min(50, Math.floor(parsedPolicy.testBudget.maxTests)))
             : basePolicy.testBudget.maxTests,
       },
+      automation: {
+        mode: parsedAutomationMode,
+        branchOverrides: parsedBranchOverrides,
+      },
     };
 
     const settings: RepoSettings = {
@@ -3424,6 +4393,10 @@ async function loadRepoSettings(repoPath: string): Promise<RepoSettings> {
         : defaultSettings.sourceDirectories,
       policy,
       policySource: hasPolicyConfig ? 'repo_config' : 'default',
+      automationConfigSource:
+        parsed.policy?.automation && typeof parsed.policy.automation === 'object'
+          ? 'repo_config'
+          : 'default',
     };
     setCachedValue(repoSettingsCache, repoPath, settings);
     return settings;

@@ -51,3 +51,12 @@ Bu dosya tekrar eden hatalari azaltmak icin kalici calisma derslerini tutar.
 
 16. Policy kararlarinda sadece metin degil kaynak ve kod da don.
     `blockedReasons` tek basina yeterli degil; `source` ve stable `blockedReasonCodes` alanlari olmadan kullanici "bu karar nereden geldi?" sorusunu net cevaplayamaz.
+
+17. Smoke fixture'da `auto_apply` mode etkisini izole etmeden sonraki adima gecme.
+    `auto_apply`, `apply: false` cagrilarinda bile dosya mutate edebilecegi icin fixture adimlarinin sonraki beklentilerini bozabilir; bu moddan sonra config'i `guarded_apply`'a cekmek veya fixture dosyasini explicit resetlemek gerekir.
+
+18. Conditional object literal union'larinda literal status alanini genisletme.
+    `const result = condition ? { status: 'skipped' } : existingTypedResult` gibi kaliplarda TypeScript `status` alanini `string`e genisletebilir; bu tip kirilmasini onlemek icin degiskeni hedef tipe (`RunPlanExecution`) annotate et veya literal alanlari `as const` ile sabitle.
+
+19. Multi-repo dogfood kosularini fail-fast yerine per-repo fail-safe tasarla.
+    Tek bir repo clone/ci-impact hatasi tum kosuyu dusururse nightly sinyal kaybolur; repo bazli `status` + `reasonCode` kaydi ile ilerlemek ve sonunda toplu artifact uretmek daha guvenilir operasyon modeli saglar.
