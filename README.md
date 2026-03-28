@@ -101,6 +101,7 @@ Repo memory:
 
 - `autoqa_verify_patch` her calisma sonunda `.autoqa/state/memory.json` dosyasini gunceller.
 - Memory icinde pattern bazli ogrenme istatistikleri tutulur (`patternStats`).
+- `autoqa_execute_run_plan` ve `autoqa_verify_patch` metrikleri `.autoqa/state/metrics.json` dosyasina yazar.
 - `pnpm memory:inspect` ile memory ozetini inceleyebilirsin.
 - `pnpm memory:reset` ile local memory dosyasini sifirlayabilirsin.
 - Dosya local state oldugu icin `.gitignore` icinde tutulur.

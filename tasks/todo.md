@@ -9,30 +9,27 @@ Kaynak backlog:
 
 ## Current Focus
 
-V3 WS2 - Learning Loop from Memory
+V3 WS3 - Outcome Analytics (lightweight metrics) [completed]
 
 ## Spec
 
 Hedef:
-Memory tabanli ogrenme sinyallerini guclendirmek:
-- patch acceptance/re-break istatistiklerini pattern bazinda takip et
-- hedef siralamayi memory pattern performansiyla agirliklandir
-- CI summary icinde memory confidence hint sagla
+Local metrics katmani ile CI/PR ciktilarina olculebilir outcome sinyali eklemek.
 
 Basari kosulu:
 
-- memory state dosyasinda pattern-level ogrenme istatistikleri var (`patternStats`)
-- ranking path'inde memory pattern performansi puanlamayi etkiliyor
-- CI summary payload ve metninde confidence hint sinyali var
-- smoke test memory confidence ve pattern-stat assertleri iceriyor
+- `.autoqa/state/metrics.json` dosyasi uretiliyor
+- execute/verify sonrasi metrik sayaclari guncelleniyor
+- `ci_summary` metrics oranlarini (`accept`, `verify`, `re-break`, `skipped`) donduruyor
+- metrics yoksa summary graceful fallback veriyor
 
 ## Plan
 
-1. `[x]` Memory modeline pattern-level istatistik alanlarini ekle.
-2. `[x]` Verification sonrasi memory yaziminda acceptance/re-break pattern guncellemesi ekle.
-3. `[x]` Patch target ranking'e pattern performans agirligi ekle.
-4. `[x]` `ci_summary` memory confidence hint sinyalini ekle.
-5. `[x]` Smoke testlerde confidence hint + pattern stat assertlerini ekle.
+1. `[x]` Local metrics modeli ve state persistence katmanini ekle.
+2. `[x]` `execute_run_plan` ve `verify_patch` sonrasi metrics guncellemesini bagla.
+3. `[x]` `ci_summary` icine metrics summary blok/alanlarini ekle.
+4. `[x]` Smoke testte metrics dosyasi + summary assertlerini ekle.
+5. `[x]` Operator/README dokumanlarini metrics davranisiyla guncelle.
 6. `[x]` `pnpm build`, `pnpm test`, `pnpm run v2:gate` ile dogrula.
 
 ## Verification
@@ -42,14 +39,12 @@ Basari kosulu:
   - `pnpm build`
   - `pnpm run v2:gate`
 - Beklenen kanit:
-  - memory dosyasinda `patternStats` dolu
-  - summary metninde `Memory confidence` sinyali
-  - smoke assertlerinde confidenceHint ve pattern stat dogrulamasi
+  - `.autoqa/state/metrics.json` dosyasinda sayaclarin artmasi
+  - summary metninde `Metrics:` satiri ve payload `metricsSummary` alanlari
+  - smoke assertlerinde metrics dosyasi + oran dogrulamalari
   - build + smoke + gate komutlarinin yesil cikmasi
 - Gecen komutlar:
   - `pnpm build`
-  - `pnpm test`
-  - `pnpm run v2:gate`
   - `pnpm test`
   - `pnpm run v2:gate`
 
@@ -58,5 +53,5 @@ Basari kosulu:
 Durum:
 
 - V2 hardening tamamlandi (onceki sprint).
-- V3 WS1 ve WS4 tamamlandi.
-- V3 WS2 implementation tamamlandi ve dogrulandi.
+- V3 WS1, WS2, WS3 ve WS4 tamamlandi.
+- WS3 metrik katmani build/test/gate ile dogrulandi; bir sonraki adim V3 sonrasi paketleme/positioning calismasi.

@@ -58,6 +58,7 @@ V3 itibariyla:
 - `autoqa_ci_summary`:
   - `reasonCodes` alanini doner
   - `memorySummary.confidenceHint` ve `memorySummary.confidenceExplanation` alanlarini doner
+  - `metricsSummary` alaninda accept/verify/re-break/skipped oranlarini doner
   - `status: "no_changes"` durumunda en az `["no_changes"]` beklenir
 
 Not:

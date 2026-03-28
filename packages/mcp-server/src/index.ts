@@ -108,9 +108,39 @@ type AutoQaRepoMemory = {
   routeHistory: MemorySelectorHistoryEntry[];
 };
 
+type AutoQaRepoMetrics = {
+  schemaVersion: 1;
+  updatedAt: string;
+  repoFingerprint: string;
+  suggestions: {
+    attempted: number;
+    applied: number;
+    blocked: number;
+  };
+  verify: {
+    total: number;
+    passed: number;
+    failed: number;
+    skipped: number;
+  };
+  execution: {
+    total: number;
+    skippedByPolicy: number;
+  };
+  rebreaks: {
+    total: number;
+    detected: number;
+  };
+};
+
 type RepoMemoryAdapter = {
   read(repoPath: string): Promise<{ memoryPath: string; memory: AutoQaRepoMemory; existed: boolean }>;
   write(repoPath: string, memoryPath: string, memory: AutoQaRepoMemory): Promise<void>;
+};
+
+type RepoMetricsAdapter = {
+  read(repoPath: string): Promise<{ metricsPath: string; metrics: AutoQaRepoMetrics; existed: boolean }>;
+  write(repoPath: string, metricsPath: string, metrics: AutoQaRepoMetrics): Promise<void>;
 };
 
 type PolicyMode = 'auto' | 'report_only' | 'enforce';
@@ -183,6 +213,15 @@ type RepoMemorySummary = {
     file: string;
     count: number;
   }>;
+};
+
+type RepoMetricsSummary = {
+  available: boolean;
+  sampleCount: number;
+  acceptedSuggestionRate: number;
+  verifyPassRate: number;
+  rebreakRate: number;
+  skippedByPolicyRatio: number;
 };
 
 const AUTOQA_PR_COMMENT_MARKER = '<!-- autoqa:pr-comment:v1 -->';
@@ -298,6 +337,7 @@ type CiSummary = {
   suggestedRunTargets: string[];
   changedFiles: string[];
   memorySummary: RepoMemorySummary;
+  metricsSummary: RepoMetricsSummary;
   reasonCodes: ReasonCode[];
 };
 
@@ -1636,6 +1676,7 @@ function buildNoChangesSummaryLines(
   format: 'markdown' | 'github' | 'plain',
   header: string,
   memorySummary: RepoMemorySummary,
+  metricsSummary: RepoMetricsSummary,
   reasonCodes: ReasonCode[]
 ) {
   const dedupedReasonCodes = dedupeReasonCodes(reasonCodes);
@@ -1661,6 +1702,13 @@ function buildNoChangesSummaryLines(
       `Reason codes: ${formatReasonCodeInline(dedupedReasonCodes)}`,
       `Memory confidence: ${memorySummary.confidenceHint} (${memorySummary.confidenceExplanation})`,
       `Memory: ${memorySummary.failedRuns} failed run(s), ${memorySummary.acceptedPatches} accepted patch(es), ${memorySummary.rejectedPatches} rejected patch(es)`,
+      metricsSummary.available
+        ? `Metrics: accept=${Math.round(metricsSummary.acceptedSuggestionRate * 100)}%, verify=${Math.round(
+            metricsSummary.verifyPassRate * 100
+          )}%, re-break=${Math.round(metricsSummary.rebreakRate * 100)}%, skipped=${Math.round(
+            metricsSummary.skippedByPolicyRatio * 100
+          )}%`
+        : 'Metrics: no samples yet',
     ];
   }
 
@@ -1694,6 +1742,11 @@ function buildNoChangesSummaryLines(
       `- Known flaky tests: ${memorySummary.knownFlakyTests}`,
       `- Memory confidence: ${memorySummary.confidenceHint}`,
       `- Confidence note: ${memorySummary.confidenceExplanation}`,
+      `- Metrics sample count: ${metricsSummary.sampleCount}`,
+      `- Accepted suggestion rate: ${Math.round(metricsSummary.acceptedSuggestionRate * 100)}%`,
+      `- Verify pass rate: ${Math.round(metricsSummary.verifyPassRate * 100)}%`,
+      `- Re-break rate: ${Math.round(metricsSummary.rebreakRate * 100)}%`,
+      `- Skipped-by-policy ratio: ${Math.round(metricsSummary.skippedByPolicyRatio * 100)}%`,
       ...patternLines,
       ...memoryLines,
       '',
@@ -1718,6 +1771,11 @@ function buildNoChangesSummaryLines(
     `- Known flaky tests: ${memorySummary.knownFlakyTests}`,
     `- Memory confidence: ${memorySummary.confidenceHint}`,
     `- Confidence note: ${memorySummary.confidenceExplanation}`,
+    `- Metrics sample count: ${metricsSummary.sampleCount}`,
+    `- Accepted suggestion rate: ${Math.round(metricsSummary.acceptedSuggestionRate * 100)}%`,
+    `- Verify pass rate: ${Math.round(metricsSummary.verifyPassRate * 100)}%`,
+    `- Re-break rate: ${Math.round(metricsSummary.rebreakRate * 100)}%`,
+    `- Skipped-by-policy ratio: ${Math.round(metricsSummary.skippedByPolicyRatio * 100)}%`,
     ...patternLines,
     ...memoryLines,
   ];
@@ -1737,6 +1795,7 @@ async function buildCiSummary(
   const resolvedRepoPath = resolve(repoPath);
   const memory = (await readRepoMemory(resolvedRepoPath)).memory;
   const memorySummary = buildRepoMemorySummary(memory);
+  const metricsSummary = await readRepoMetricsSummary(resolvedRepoPath);
   let analysis: ImpactAnalysisResult;
   let runPlan: TargetedRunPlan;
 
@@ -1777,11 +1836,18 @@ async function buildCiSummary(
       status: 'no_changes',
       format,
       diffSource,
-      summary: buildNoChangesSummaryLines(format, header, memorySummary, noChangesReasonCodes).join('\n'),
+      summary: buildNoChangesSummaryLines(
+        format,
+        header,
+        memorySummary,
+        metricsSummary,
+        noChangesReasonCodes
+      ).join('\n'),
       affectedTests: [],
       suggestedRunTargets: [],
       changedFiles: [],
       memorySummary,
+      metricsSummary,
       reasonCodes: noChangesReasonCodes,
     };
   }
@@ -1819,6 +1885,13 @@ async function buildCiSummary(
       `Reason codes: ${formatReasonCodeInline(summaryReasonCodes)}`,
       `Memory confidence: ${memorySummary.confidenceHint} (${memorySummary.confidenceExplanation})`,
       `Memory: ${memorySummary.failedRuns} failed run(s), ${memorySummary.acceptedPatches} accepted patch(es)`,
+      metricsSummary.available
+        ? `Metrics: accept=${Math.round(metricsSummary.acceptedSuggestionRate * 100)}%, verify=${Math.round(
+            metricsSummary.verifyPassRate * 100
+          )}%, re-break=${Math.round(metricsSummary.rebreakRate * 100)}%, skipped=${Math.round(
+            metricsSummary.skippedByPolicyRatio * 100
+          )}%`
+        : 'Metrics: no samples yet',
     ];
   } else if (format === 'github') {
     lines = [
@@ -1858,6 +1931,11 @@ async function buildCiSummary(
       `- Known flaky tests: ${memorySummary.knownFlakyTests}`,
       `- Memory confidence: ${memorySummary.confidenceHint}`,
       `- Confidence note: ${memorySummary.confidenceExplanation}`,
+      `- Metrics sample count: ${metricsSummary.sampleCount}`,
+      `- Accepted suggestion rate: ${Math.round(metricsSummary.acceptedSuggestionRate * 100)}%`,
+      `- Verify pass rate: ${Math.round(metricsSummary.verifyPassRate * 100)}%`,
+      `- Re-break rate: ${Math.round(metricsSummary.rebreakRate * 100)}%`,
+      `- Skipped-by-policy ratio: ${Math.round(metricsSummary.skippedByPolicyRatio * 100)}%`,
       ...patternSignalLines,
       ...(memorySummary.topFailingTests.length
         ? memorySummary.topFailingTests.map((entry) => `- \`${entry.file}\` (${entry.count})`)
@@ -1892,6 +1970,11 @@ async function buildCiSummary(
       `- Memory confidence: ${memorySummary.confidenceHint}`,
       `- Confidence note: ${memorySummary.confidenceExplanation}`,
       `- Memory: ${memorySummary.failedRuns} failed run(s), ${memorySummary.acceptedPatches} accepted patch(es)`,
+      `- Metrics sample count: ${metricsSummary.sampleCount}`,
+      `- Accepted suggestion rate: ${Math.round(metricsSummary.acceptedSuggestionRate * 100)}%`,
+      `- Verify pass rate: ${Math.round(metricsSummary.verifyPassRate * 100)}%`,
+      `- Re-break rate: ${Math.round(metricsSummary.rebreakRate * 100)}%`,
+      `- Skipped-by-policy ratio: ${Math.round(metricsSummary.skippedByPolicyRatio * 100)}%`,
       '',
       '### Suggested run targets',
       ...(analysis.suggestedRunTargets.length
@@ -1915,6 +1998,7 @@ async function buildCiSummary(
     suggestedRunTargets: analysis.suggestedRunTargets,
     changedFiles: analysis.changedFiles,
     memorySummary,
+    metricsSummary,
     reasonCodes: summaryReasonCodes,
   };
 }
@@ -1995,8 +2079,8 @@ async function executeRunPlan(
     blockedReasonCodes: dedupeStrings(blockedReasonCodes) as PolicyReasonCode[],
   };
 
-  if (automationBlocksExecution) {
-    return {
+  const executionResult: RunPlanExecution = automationBlocksExecution
+    ? {
       repoPath: resolve(repoPath),
       command: [],
       tests: [],
@@ -2008,10 +2092,18 @@ async function executeRunPlan(
       blockedReasons: policyTrace.blockedReasons,
       blockedReasonCodes: policyTrace.blockedReasonCodes,
       policy: policyTrace,
-    };
-  }
+    }
+    : await executePlaywrightTests(repoPath, selectedTests, policyTrace);
 
-  return executePlaywrightTests(repoPath, selectedTests, policyTrace);
+  await updateRepoMetricsAfterRunPlan(repoPath, executionResult).catch((error) => {
+    console.error(
+      `[autoqa][metrics] failed to persist run-plan metrics: ${
+        error instanceof Error ? error.message : String(error)
+      }`
+    );
+  });
+
+  return executionResult;
 }
 
 async function executePlaywrightTests(
@@ -2279,6 +2371,19 @@ async function verifyPatch(
     );
   });
 
+  await updateRepoMetricsAfterVerification(repoPath, {
+    patch,
+    status: verificationStatus,
+    execution,
+    blockedReasonCodes: verifyPolicyTrace.blockedReasonCodes,
+  }).catch((error) => {
+    console.error(
+      `[autoqa][metrics] failed to persist verification metrics: ${
+        error instanceof Error ? error.message : String(error)
+      }`
+    );
+  });
+
   return {
     repoPath: resolve(repoPath),
     patch,
@@ -2386,6 +2491,33 @@ function createEmptyRepoMemory(repoPath: string): AutoQaRepoMemory {
   };
 }
 
+function createEmptyRepoMetrics(repoPath: string): AutoQaRepoMetrics {
+  return {
+    schemaVersion: MEMORY_SCHEMA_VERSION,
+    updatedAt: new Date().toISOString(),
+    repoFingerprint: createRepoFingerprint(repoPath),
+    suggestions: {
+      attempted: 0,
+      applied: 0,
+      blocked: 0,
+    },
+    verify: {
+      total: 0,
+      passed: 0,
+      failed: 0,
+      skipped: 0,
+    },
+    execution: {
+      total: 0,
+      skippedByPolicy: 0,
+    },
+    rebreaks: {
+      total: 0,
+      detected: 0,
+    },
+  };
+}
+
 function sanitizeMemoryRecord(input: unknown, repoPath: string): AutoQaRepoMemory {
   const fallback = createEmptyRepoMemory(repoPath);
 
@@ -2465,11 +2597,48 @@ async function readRepoMemory(repoPath: string) {
   }
 }
 
+async function readRepoMetrics(repoPath: string) {
+  const stateDir = join(resolve(repoPath), '.autoqa', 'state');
+  const metricsPath = join(stateDir, 'metrics.json');
+  const raw = await readFile(metricsPath, 'utf8').catch(() => null);
+
+  if (!raw) {
+    return {
+      metricsPath,
+      metrics: createEmptyRepoMetrics(repoPath),
+      existed: false,
+    };
+  }
+
+  try {
+    const parsed = JSON.parse(raw);
+    return {
+      metricsPath,
+      metrics: sanitizeMetricsRecord(parsed, repoPath),
+      existed: true,
+    };
+  } catch {
+    return {
+      metricsPath,
+      metrics: createEmptyRepoMetrics(repoPath),
+      existed: false,
+    };
+  }
+}
+
 const localRepoMemoryAdapter: RepoMemoryAdapter = {
   read: readRepoMemory,
   async write(_repoPath: string, memoryPath: string, memory: AutoQaRepoMemory) {
     await mkdir(dirname(memoryPath), { recursive: true });
     await writeFile(memoryPath, `${JSON.stringify(memory, null, 2)}\n`, 'utf8');
+  },
+};
+
+const localRepoMetricsAdapter: RepoMetricsAdapter = {
+  read: readRepoMetrics,
+  async write(_repoPath: string, metricsPath: string, metrics: AutoQaRepoMetrics) {
+    await mkdir(dirname(metricsPath), { recursive: true });
+    await writeFile(metricsPath, `${JSON.stringify(metrics, null, 2)}\n`, 'utf8');
   },
 };
 
@@ -2609,6 +2778,76 @@ async function writeRepoMemoryAfterVerification(
   };
 
   await localRepoMemoryAdapter.write(repoPath, memoryPath, nextMemory);
+}
+
+async function updateRepoMetricsAfterRunPlan(repoPath: string, execution: RunPlanExecution) {
+  const { metricsPath, metrics } = await localRepoMetricsAdapter.read(repoPath);
+  const skippedByPolicy =
+    execution.status === 'skipped' &&
+    execution.blockedReasonCodes.some((code) =>
+      ['branch_report_only', 'automation_mode_blocked', 'test_budget_capped'].includes(code)
+    );
+
+  const next: AutoQaRepoMetrics = {
+    ...metrics,
+    schemaVersion: MEMORY_SCHEMA_VERSION,
+    updatedAt: new Date().toISOString(),
+    repoFingerprint: createRepoFingerprint(repoPath),
+    execution: {
+      total: metrics.execution.total + 1,
+      skippedByPolicy: metrics.execution.skippedByPolicy + (skippedByPolicy ? 1 : 0),
+    },
+  };
+
+  await localRepoMetricsAdapter.write(repoPath, metricsPath, next);
+}
+
+async function updateRepoMetricsAfterVerification(
+  repoPath: string,
+  payload: {
+    patch: SuggestedPatch;
+    status: PatchVerification['status'];
+    execution: RunPlanExecution;
+    blockedReasonCodes: PolicyReasonCode[];
+  }
+) {
+  const { metricsPath, metrics } = await localRepoMetricsAdapter.read(repoPath);
+  const rebreakDetected = payload.status === 'failed' && payload.patch.applied;
+  const skippedByPolicy =
+    payload.execution.status === 'skipped' &&
+    payload.blockedReasonCodes.some((code) =>
+      ['branch_report_only', 'automation_mode_blocked', 'test_budget_capped', 'below_verify_threshold'].includes(
+        code
+      )
+    );
+
+  const next: AutoQaRepoMetrics = {
+    ...metrics,
+    schemaVersion: MEMORY_SCHEMA_VERSION,
+    updatedAt: new Date().toISOString(),
+    repoFingerprint: createRepoFingerprint(repoPath),
+    suggestions: {
+      attempted: metrics.suggestions.attempted + 1,
+      applied: metrics.suggestions.applied + (payload.patch.applied ? 1 : 0),
+      blocked: metrics.suggestions.blocked + (payload.patch.blockedReasonCodes.length > 0 ? 1 : 0),
+    },
+    verify: {
+      total: metrics.verify.total + 1,
+      passed: metrics.verify.passed + (payload.status === 'passed' ? 1 : 0),
+      failed: metrics.verify.failed + (payload.status === 'failed' ? 1 : 0),
+      skipped: metrics.verify.skipped + (payload.status === 'skipped' ? 1 : 0),
+    },
+    execution: {
+      total: metrics.execution.total + 1,
+      skippedByPolicy: metrics.execution.skippedByPolicy + (skippedByPolicy ? 1 : 0),
+    },
+    rebreaks: {
+      total: metrics.rebreaks.total + (payload.patch.applied ? 1 : 0),
+      detected: metrics.rebreaks.detected + (rebreakDetected ? 1 : 0),
+    },
+  };
+
+  await localRepoMetricsAdapter.write(repoPath, metricsPath, next);
 }
 
 async function resolveDirectoryPath(inputPath: string) {
@@ -3676,6 +3915,43 @@ function createDefaultPolicy(): RepoPolicy {
   };
 }
 
+function sanitizeMetricsRecord(input: unknown, repoPath: string): AutoQaRepoMetrics {
+  const fallback = createEmptyRepoMetrics(repoPath);
+
+  if (!input || typeof input !== 'object') {
+    return fallback;
+  }
+
+  const value = input as Partial<AutoQaRepoMetrics>;
+  return {
+    schemaVersion: MEMORY_SCHEMA_VERSION,
+    updatedAt: typeof value.updatedAt === 'string' ? value.updatedAt : fallback.updatedAt,
+    repoFingerprint:
+      typeof value.repoFingerprint === 'string' && value.repoFingerprint.length > 0
+        ? value.repoFingerprint
+        : fallback.repoFingerprint,
+    suggestions: {
+      attempted: Math.max(0, Math.floor(Number(value.suggestions?.attempted) || 0)),
+      applied: Math.max(0, Math.floor(Number(value.suggestions?.applied) || 0)),
+      blocked: Math.max(0, Math.floor(Number(value.suggestions?.blocked) || 0)),
+    },
+    verify: {
+      total: Math.max(0, Math.floor(Number(value.verify?.total) || 0)),
+      passed: Math.max(0, Math.floor(Number(value.verify?.passed) || 0)),
+      failed: Math.max(0, Math.floor(Number(value.verify?.failed) || 0)),
+      skipped: Math.max(0, Math.floor(Number(value.verify?.skipped) || 0)),
+    },
+    execution: {
+      total: Math.max(0, Math.floor(Number(value.execution?.total) || 0)),
+      skippedByPolicy: Math.max(0, Math.floor(Number(value.execution?.skippedByPolicy) || 0)),
+    },
+    rebreaks: {
+      total: Math.max(0, Math.floor(Number(value.rebreaks?.total) || 0)),
+      detected: Math.max(0, Math.floor(Number(value.rebreaks?.detected) || 0)),
+    },
+  };
+}
+
 function resolvePolicySource(
   settings: RepoSettings,
   policyMode: PolicyMode,
@@ -3878,6 +4154,30 @@ function resolveAutomationTrace(
     mode: settings.policy.automation.mode,
     source: settings.automationConfigSource,
   };
+}
+
+function buildRepoMetricsSummary(metrics: AutoQaRepoMetrics): RepoMetricsSummary {
+  const suggestionSample = Math.max(0, metrics.suggestions.attempted);
+  const verifySample = Math.max(0, metrics.verify.total);
+  const rebreakSample = Math.max(0, metrics.rebreaks.total);
+  const executionSample = Math.max(0, metrics.execution.total);
+  const sampleCount = Math.max(suggestionSample, verifySample, executionSample);
+
+  return {
+    available: sampleCount > 0,
+    sampleCount,
+    acceptedSuggestionRate:
+      suggestionSample > 0 ? metrics.suggestions.applied / suggestionSample : 0,
+    verifyPassRate: verifySample > 0 ? metrics.verify.passed / verifySample : 0,
+    rebreakRate: rebreakSample > 0 ? metrics.rebreaks.detected / rebreakSample : 0,
+    skippedByPolicyRatio:
+      executionSample > 0 ? metrics.execution.skippedByPolicy / executionSample : 0,
+  };
+}
+
+async function readRepoMetricsSummary(repoPath: string): Promise<RepoMetricsSummary> {
+  const { metrics } = await localRepoMetricsAdapter.read(repoPath);
+  return buildRepoMetricsSummary(metrics);
 }
 
 function evaluatePatchPolicy(

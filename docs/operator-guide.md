@@ -77,6 +77,7 @@ pnpm memory:reset
 Memory location:
 
 - `.autoqa/state/memory.json`
+- `.autoqa/state/metrics.json`
 
 ## 7. Troubleshooting
 
@@ -88,3 +89,5 @@ Memory location:
   - check `policy.source` to see whether the decision came from CLI override, repo config, or defaults.
 - Execution skipped unexpectedly:
   - inspect `policy.automationMode`, `policy.automationSource`, and `policy.automationPattern`.
+- CI summary metrics block bos geliyorsa:
+  - once `autoqa_execute_run_plan` veya `autoqa_verify_patch` calistirip metrics sample uret.

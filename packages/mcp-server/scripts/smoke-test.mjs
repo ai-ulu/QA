@@ -917,6 +917,13 @@ try {
   assert.ok(Array.isArray(memoryJson.patternStats));
   assert.ok(memoryJson.patternStats.length > 0);
   assert.ok(memoryJson.patternStats.some((entry) => entry.pattern === 'selector'));
+  const metricsPath = join(repoFixturePath, '.autoqa', 'state', 'metrics.json');
+  const metricsRaw = await readFile(metricsPath, 'utf8');
+  const metricsJson = JSON.parse(metricsRaw);
+  assert.equal(metricsJson.schemaVersion, 1);
+  assert.ok(metricsJson.suggestions.attempted > 0);
+  assert.ok(metricsJson.verify.total > 0);
+  assert.ok(metricsJson.execution.total > 0);
 
   await writeFile(
     join(repoFixturePath, 'src', 'app.tsx'),
@@ -974,6 +981,9 @@ try {
   assert.ok(workingTreeSummaryPayload.memorySummary.failedRuns >= 0);
   assert.ok(workingTreeSummaryPayload.memorySummary.acceptedPatches > 0);
   assert.equal(typeof workingTreeSummaryPayload.memorySummary.confidenceHint, 'string');
+  assert.equal(typeof workingTreeSummaryPayload.metricsSummary.acceptedSuggestionRate, 'number');
+  assert.equal(typeof workingTreeSummaryPayload.metricsSummary.verifyPassRate, 'number');
+  assert.ok(workingTreeSummaryPayload.metricsSummary.available);
   assert.ok(Array.isArray(workingTreeSummaryPayload.reasonCodes));
 
   await execFileAsync('git', ['add', 'src/app.tsx', 'src/profile-link.tsx'], { cwd: repoFixturePath });
@@ -1056,9 +1066,11 @@ try {
   assert.equal(noChangesSummaryPayload.status, 'no_changes');
   assert.match(noChangesSummaryPayload.summary, /No changes detected/i);
   assert.match(noChangesSummaryPayload.summary, /Memory confidence:/i);
+  assert.match(noChangesSummaryPayload.summary, /Metrics:/i);
   assert.match(noChangesSummaryPayload.summary, /Reason codes:/i);
   assert.ok(Array.isArray(noChangesSummaryPayload.reasonCodes));
   assert.ok(noChangesSummaryPayload.reasonCodes.includes('no_changes'));
+  assert.equal(typeof noChangesSummaryPayload.metricsSummary.sampleCount, 'number');
   assert.equal(noChangesSummaryPayload.changedFiles.length, 0);
 
   console.log('MCP smoke test passed');

@@ -53,6 +53,7 @@ Artifact-aware inputs:
 Local repo memory:
 
 - `verify_patch` writes local state to `.autoqa/state/memory.json`.
+- `execute_run_plan` and `verify_patch` write local metrics to `.autoqa/state/metrics.json`.
 - `pnpm run memory:inspect` prints summary + full JSON payload.
 - `pnpm run memory:reset` deletes local memory (force-enabled in package script).
 - Memory now tracks pattern-level stats under `patternStats` for acceptance/re-break learning loops.
@@ -122,6 +123,7 @@ Clean diff handling:
 
 - `autoqa_ci_summary` selected flows now return `status: "no_changes"` instead of hard fail when the selected diff scope is empty.
 - `autoqa_ci_summary` includes memory confidence hints (`confidenceHint`, `confidenceExplanation`) when memory state is available.
+- `autoqa_ci_summary` includes metrics summary ratios when local metrics samples exist.
 - V3 WS1 reason-code contract:
   - `blockedReasonCodes` for `suggest`, `execute`, `verify`
   - `warningCodes` for `targeted_run_plan`
