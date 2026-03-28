@@ -35,7 +35,6 @@ Nightly CI:
 
 - Workflow: `.github/workflows/autoqa-dogfood-nightly.yml`
 - Varsayilan calisma: `pnpm dogfood:nightly`
-- Manual run icin opsiyonel limit: `workflow_dispatch.inputs.limit`
 
 ## Reportlar
 
@@ -65,4 +64,4 @@ Dogfood artik repo bazinda hard-crash olmaz; her repo sonucu ayri kaydedilir:
 - `reasonCode` (ornek: `clone_failed`, `candidate_file_not_found`, `marker_write_failed`, `ci_impact_failed`, `timeout`, `unexpected_error`)
 
 Nightly workflow shell-only calisir, markdown raporunu step summary'ye yazar ve local report dosyalarini uretir.
-Artifact upload sonraki adimdir.
+Ek olarak gunluk release tag'i altinda guncel `.md` ve `.json` raporlarini release asset olarak yayinlar.

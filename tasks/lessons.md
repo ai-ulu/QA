@@ -63,3 +63,5 @@ Bu dosya tekrar eden hatalari azaltmak icin kalici calisma derslerini tutar.
 
 20. Bu repo'da GitHub Actions `uses:` adimlarini dogrudan varsayma.
     `actions/checkout` gibi standart gorunen `uses:` adimlari startup_failure uretebildigi icin workflow'u once shell-only olarak ayağa kaldir, sonra tek tek adim ekleyerek bisection yap.
+21. Workflow davranisi degisince operator dokumanlarini ayni turda guncelle.
+    Nightly workflow shell-only, release asset veya dispatch behavior olarak degistiginde `README.md`, `DOGFOOD.md` ve package README ayni anda senkronlanmali; aksi halde urun hikayesi ile gercek calisma modu birbirini yalanlar.

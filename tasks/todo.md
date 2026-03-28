@@ -9,50 +9,43 @@ Kaynak backlog:
 
 ## Current Focus
 
-V3 WS5 - Real Repo Pack + Nightly Dogfood Workflow
+Pilot planning - internal repo pack, external canary rubric, buyer messaging
 
 ## Spec
 
 Hedef:
-Gercek repo cesitliliginde dogfood sinyalini artisli ve operasyonel hale getirmek.
+AutoQA icin 1 haftalik pilotu soyut fikir olmaktan cikarip repo-secimi, mesajlama ve karar esikleri ile uygulanabilir hale getirmek.
 
 Basari kosulu:
 
-- `dogfood.repos.json` en az 10 public repo iceriyor
-- nightly workflow dogfood calistirip artifact upload ediyor
-- dogfood script repo-bazli structured failure raporu uretiyor
-- failure durumunda tum kosu hard-crash olmadan rapor uretebiliyor
+- ic repo adaylari netlesmis olmali
+- dis repo sourcing rubrigi yazilmis olmali
+- QA / EM / VP Eng buyer messaging ayrismis olmali
+- 7 gunluk pilot plani ve go/no-go sablonu hazir olmali
 
 ## Plan
 
-1. `[x]` `dogfood.repos.json` listesini 10+ repo seviyesine genislet.
-2. `[x]` `dogfood.mjs` akisini per-repo status + reasonCode + artifact modeline cevir.
-3. `[x]` nightly workflow dosyasini ekle (`autoqa-dogfood-nightly.yml`).
-4. `[x]` README/DOGFOOD ve package README dokumanlarini yeni akisla guncelle.
-5. `[x]` `pnpm build`, `pnpm test`, `pnpm run v2:gate`, `pnpm dogfood -- --soft-fail` ile dogrula.
+1. `[x]` Workspace icinde Playwright kullanan ic repo adaylarini tara ve sinifla.
+2. `[x]` 7 gunluk pilot plani ve karar esiklerini yaz.
+3. `[x]` dis repo sourcing rubrigi ve buyer messaging matrisini yaz.
+4. `[x]` repo takip / gunluk log / go-no-go sablonlarini ekle.
+5. `[x]` dokumanlari gozden gecir, commit et, push et.
 
 ## Verification
 
 - Calistirilacak:
-  - `pnpm build`
-  - `pnpm test`
-  - `pnpm run v2:gate`
-  - `pnpm dogfood -- --soft-fail`
+  - local repo scan
+  - docs review
 - Beklenen kanit:
-  - dogfood run sonunda `autoqa-dogfood-latest.md` ve `.json` dosyalari yazilmis olmali
-  - raporda `status`/`reasonCode` dagilimi gorunmeli
-  - workflow dosyasi syntax olarak gecmeli ve artifact upload adimi icermeli
-  - build + smoke + gate komutlari yesil kalmali
+  - `docs/pilot-plan.md` icinde 7 gunluk plan ve ic repo listesi olmali
+  - `docs/pilot-sourcing-and-messaging.md` icinde sourcing ve buyer ayrimi olmali
+  - `docs/pilot-templates.md` icinde takip ve go/no-go sablonlari olmali
 - Gecen komutlar:
-  - `pnpm build`
-  - `pnpm test`
-  - `pnpm run v2:gate`
-  - `pnpm dogfood -- --soft-fail` (12 repo, 12 passed, 0 failed)
+  - local workspace Playwright scan
 
 ## Review
 
 Durum:
 
-- V2 hardening tamamlandi (onceki sprint).
-- V3 WS1, WS2, WS3 ve WS4 tamamlandi.
-- WS5 implementation ve dogrulama tamamlandi.
+- Teknik V3 workstream'leri kapanmis durumda.
+- Sonraki asama feature degil, pilot ve distribution planini netlestirmek.

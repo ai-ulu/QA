@@ -58,7 +58,7 @@ node packages/mcp-server/scripts/ci-impact.mjs --repo . --auto-base --format git
 - `packages/mcp-server/reports/autoqa-dogfood-latest.md`
 - `packages/mcp-server/reports/autoqa-dogfood-latest.json`
 
-The current GitHub Actions workflow publishes the markdown report to the step summary. Artifact upload is still a follow-up task.
+The current GitHub Actions workflow publishes the markdown report to the step summary and uploads the current `.md` and `.json` reports as nightly GitHub release assets.
 
 `pnpm ci:impact` prefers branch diff analysis with `--auto-base`. If there is no committed diff to compare, it falls back to working tree analysis instead of failing with a parse error.
 
@@ -77,6 +77,9 @@ Required CI workflow:
 Roadmap:
 
 - [V3 Execution Plan](V3_EXECUTION_PLAN.md)
+- [Pilot Plan](docs/pilot-plan.md)
+- [Pilot Sourcing And Messaging](docs/pilot-sourcing-and-messaging.md)
+- [Pilot Templates](docs/pilot-templates.md)
 
 ## MCP Surface
 

@@ -171,5 +171,6 @@ Dogfood reports:
 - Markdown report: `packages/mcp-server/reports/autoqa-dogfood-latest.md`
 - JSON report: `packages/mcp-server/reports/autoqa-dogfood-latest.json`
 - Per-repo failures are emitted as structured reason codes (`clone_failed`, `ci_impact_failed`, vb.) instead of hard-crashing the entire run.
+- Nightly workflow also publishes the latest markdown and JSON reports as GitHub release assets.
 
 `pnpm run ci:impact` prefers merge-base diff analysis and falls back to working tree analysis when the current branch has no committed diff to compare.
