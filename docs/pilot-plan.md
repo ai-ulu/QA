@@ -56,6 +56,16 @@ Selection rules:
 - not a Playwright framework/tool/template repo
 - enough CI/test complexity to produce maintenance pain
 
+Day 1 selected canaries:
+
+- `cal.com`
+- `payloadcms/payload`
+
+Reserve canaries:
+
+- `strapi/strapi`
+- `n8n-io/n8n`
+
 ## 7-Day Plan
 
 ### Day 1 - Lock Repo Pack and Metrics

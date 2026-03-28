@@ -6,10 +6,19 @@ Use this for the first 5 to 8 pilot repos.
 
 | Repo | Internal/External | Playwright Confirmed | CI Available | Recent Failures Seen | Buyer Guess | Status |
 | --- | --- | --- | --- | --- | --- | --- |
-| QA | Internal | Yes | Yes | Yes | QA/EM | Planned |
-| frontend | Internal | Yes | Partial | Unknown | EM | Planned |
-| tmp_flowgram | Internal | Yes | Unknown | Unknown | QA/EM | Planned |
-| StackMemory frontend | Internal | Yes | Unknown | Unknown | Founder/EM | Planned |
+| QA | Internal | Yes | Yes | Yes | QA/EM | Selected |
+| frontend | Internal | Yes | Yes | Unknown | EM | Selected |
+| tmp_flowgram | Internal | Yes | Yes | Unknown | QA/EM | Selected |
+| cal.com | External | Yes | Yes | Yes | EM/VP Eng | Selected |
+| payloadcms/payload | External | Yes | Yes | Yes | EM/VP Eng | Selected |
+| strapi/strapi | External | Yes | Yes | Yes | EM/VP Eng | Reserve |
+| n8n-io/n8n | External | Yes | Yes | Yes | EM/VP Eng | Reserve |
+
+Day 1 locked pack:
+
+- Internal selected: `QA`, `frontend`, `tmp_flowgram`
+- External selected: `cal.com`, `payloadcms/payload`
+- External reserve: `strapi/strapi`, `n8n-io/n8n`
 
 ## Daily Pilot Log
 

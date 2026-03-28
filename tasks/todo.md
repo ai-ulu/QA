@@ -9,7 +9,7 @@ Kaynak backlog:
 
 ## Current Focus
 
-Pilot planning - internal repo pack, external canary rubric, buyer messaging
+Pilot Day 1 - repo pack locked, baseline capture next
 
 ## Spec
 
@@ -30,6 +30,7 @@ Basari kosulu:
 3. `[x]` dis repo sourcing rubrigi ve buyer messaging matrisini yaz.
 4. `[x]` repo takip / gunluk log / go-no-go sablonlarini ekle.
 5. `[x]` dokumanlari gozden gecir, commit et, push et.
+6. `[ ]` Day 1 icin secilen repo pack uzerinden baseline toplama adimini baslat.
 
 ## Verification
 
