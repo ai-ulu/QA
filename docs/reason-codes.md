@@ -57,6 +57,7 @@ V3 itibariyla:
   - `warningCodes` alanini flow reason-code seti ile doner
 - `autoqa_ci_summary`:
   - `reasonCodes` alanini doner
+  - `memorySummary.confidenceHint` ve `memorySummary.confidenceExplanation` alanlarini doner
   - `status: "no_changes"` durumunda en az `["no_changes"]` beklenir
 
 Not:

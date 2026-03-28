@@ -9,29 +9,30 @@ Kaynak backlog:
 
 ## Current Focus
 
-V3 WS4 - Safety Modes (config + branch override + explicit trace)
+V3 WS2 - Learning Loop from Memory
 
 ## Spec
 
 Hedef:
-Config seviyesinden enforce edilen safety mode davranisi eklemek:
-`report_only`, `suggest_only`, `guarded_apply`, `auto_apply`.
+Memory tabanli ogrenme sinyallerini guclendirmek:
+- patch acceptance/re-break istatistiklerini pattern bazinda takip et
+- hedef siralamayi memory pattern performansiyla agirliklandir
+- CI summary icinde memory confidence hint sagla
 
 Basari kosulu:
 
-- safety mode ayari `autoqa.config.json` icinden calisiyor
-- branch pattern bazli override deterministic calisiyor
-- `suggest`, `execute`, `verify` ciktilarinda automation trace gorunuyor
-- `auto_apply` protected-file ve threshold kurallarini bypass etmiyor
-- smoke test mode matrisini assert ediyor
+- memory state dosyasinda pattern-level ogrenme istatistikleri var (`patternStats`)
+- ranking path'inde memory pattern performansi puanlamayi etkiliyor
+- CI summary payload ve metninde confidence hint sinyali var
+- smoke test memory confidence ve pattern-stat assertleri iceriyor
 
 ## Plan
 
-1. `[x]` Policy modeline `automation.mode` ve `automation.branchOverrides` ekle.
-2. `[x]` `suggest_patch` akisina safety mode uygulamasi ve automation trace ekle.
-3. `[x]` `execute_run_plan` ve `verify_patch` akislarinda mode bloklama ve trace'i uygula.
-4. `[x]` Smoke fixture'da `suggest_only`, `auto_apply`, branch override ve bypass guard assertlerini ekle.
-5. `[x]` Reason-code/operator dokumanlarini safety mode bilgisiyle guncelle.
+1. `[x]` Memory modeline pattern-level istatistik alanlarini ekle.
+2. `[x]` Verification sonrasi memory yaziminda acceptance/re-break pattern guncellemesi ekle.
+3. `[x]` Patch target ranking'e pattern performans agirligi ekle.
+4. `[x]` `ci_summary` memory confidence hint sinyalini ekle.
+5. `[x]` Smoke testlerde confidence hint + pattern stat assertlerini ekle.
 6. `[x]` `pnpm build`, `pnpm test`, `pnpm run v2:gate` ile dogrula.
 
 ## Verification
@@ -41,12 +42,14 @@ Basari kosulu:
   - `pnpm build`
   - `pnpm run v2:gate`
 - Beklenen kanit:
-  - `suggest_only` modunda apply ve run execution bloklanmasi
-  - `auto_apply` modunda apply denemesi + protected/threshold guard'larin calismasi
-  - payload `policy.automationMode|automationSource|automationPattern` alanlari
+  - memory dosyasinda `patternStats` dolu
+  - summary metninde `Memory confidence` sinyali
+  - smoke assertlerinde confidenceHint ve pattern stat dogrulamasi
   - build + smoke + gate komutlarinin yesil cikmasi
 - Gecen komutlar:
   - `pnpm build`
+  - `pnpm test`
+  - `pnpm run v2:gate`
   - `pnpm test`
   - `pnpm run v2:gate`
 
@@ -55,5 +58,5 @@ Basari kosulu:
 Durum:
 
 - V2 hardening tamamlandi (onceki sprint).
-- V3 WS1 tamamlandi.
-- V3 WS4 implementation tamamlandi ve dogrulandi.
+- V3 WS1 ve WS4 tamamlandi.
+- V3 WS2 implementation tamamlandi ve dogrulandi.

@@ -56,6 +56,7 @@ type MemoryPatchRecord = {
   timestamp: string;
   issue: string;
   targetFile: string;
+  patterns: LearningPattern[];
   confidenceLevel: ConfidenceLevel;
   applied: boolean;
   status: 'passed' | 'failed' | 'skipped';
@@ -76,6 +77,24 @@ type MemorySelectorHistoryEntry = {
   sourceFile: string;
 };
 
+type LearningPattern =
+  | 'selector'
+  | 'text'
+  | 'navigation'
+  | 'timing'
+  | 'auth'
+  | 'fixture'
+  | 'unknown';
+
+type MemoryPatternStat = {
+  pattern: LearningPattern;
+  attempts: number;
+  accepted: number;
+  failed: number;
+  rebreaks: number;
+  lastUpdated: string;
+};
+
 type AutoQaRepoMemory = {
   schemaVersion: 1;
   updatedAt: string;
@@ -84,6 +103,7 @@ type AutoQaRepoMemory = {
   recentFailures: MemoryFailureRecord[];
   acceptedPatches: MemoryPatchRecord[];
   rejectedPatches: MemoryPatchRecord[];
+  patternStats: MemoryPatternStat[];
   selectorHistory: MemorySelectorHistoryEntry[];
   routeHistory: MemorySelectorHistoryEntry[];
 };
@@ -150,6 +170,15 @@ type RepoMemorySummary = {
   failedRuns: number;
   acceptedPatches: number;
   rejectedPatches: number;
+  confidenceHint: 'high' | 'medium' | 'low' | 'insufficient_data';
+  confidenceExplanation: string;
+  topPatternSignals: Array<{
+    pattern: LearningPattern;
+    attempts: number;
+    acceptanceRate: number;
+    rebreakRate: number;
+    score: number;
+  }>;
   topFailingTests: Array<{
     file: string;
     count: number;
@@ -385,6 +414,7 @@ const MEMORY_SCHEMA_VERSION = 1;
 const MEMORY_MAX_RECENT_FAILURES = 50;
 const MEMORY_MAX_ACCEPTED_PATCHES = 80;
 const MEMORY_MAX_REJECTED_PATCHES = 80;
+const MEMORY_MAX_PATTERN_STATS = 40;
 const MEMORY_MAX_SELECTOR_HISTORY = 120;
 const MEMORY_MAX_ROUTE_HISTORY = 120;
 
@@ -1252,6 +1282,8 @@ async function rankPatchTargets(
   memory: AutoQaRepoMemory | null = null,
   issueHint: string = ''
 ) {
+  const issuePatterns = deriveLearningPatterns(issueHint, '', []);
+  const diffPatterns = deriveLearningPatternsFromDiffSignals(diffSignals);
   const scoredTargets = await Promise.all(
     targets.map(async (target) => {
       const absoluteTarget = resolveRepoRelativePath(repoPath, target);
@@ -1272,6 +1304,15 @@ async function rankPatchTargets(
         memory.selectorHistory.some((entry) => entry.sourceFile === target)
           ? 6
           : 0;
+      const patternAdjustment =
+        memory &&
+        memory.patternStats.length > 0
+          ? scorePatternPerformanceForTarget(
+              memory.patternStats,
+              dedupeStrings([...issuePatterns, ...diffPatterns]) as LearningPattern[],
+              inferTargetPatterns(content, target)
+            )
+          : 0;
       return {
         target,
         score:
@@ -1279,7 +1320,8 @@ async function rankPatchTargets(
           directMatchBoost +
           acceptedBoost +
           selectorHistoryBoost -
-          rejectedPenalty,
+          rejectedPenalty +
+          patternAdjustment,
       };
     })
   );
@@ -1600,6 +1642,14 @@ function buildNoChangesSummaryLines(
   const reasonCodeLines = dedupedReasonCodes.length
     ? dedupedReasonCodes.map((code) => `- \`${code}\`: ${reasonDescription(code)}`)
     : ['- none'];
+  const patternLines = memorySummary.topPatternSignals.length
+    ? memorySummary.topPatternSignals.map(
+        (entry) =>
+          `- \`${entry.pattern}\`: attempts=${entry.attempts}, accept=${Math.round(
+            entry.acceptanceRate * 100
+          )}%, re-break=${Math.round(entry.rebreakRate * 100)}%`
+      )
+    : ['- none'];
   const memoryLines = memorySummary.topFailingTests.length
     ? memorySummary.topFailingTests.map((entry) => `- \`${entry.file}\` (${entry.count})`)
     : ['- none'];
@@ -1609,6 +1659,7 @@ function buildNoChangesSummaryLines(
       header,
       'No changes detected for the selected diff scope.',
       `Reason codes: ${formatReasonCodeInline(dedupedReasonCodes)}`,
+      `Memory confidence: ${memorySummary.confidenceHint} (${memorySummary.confidenceExplanation})`,
       `Memory: ${memorySummary.failedRuns} failed run(s), ${memorySummary.acceptedPatches} accepted patch(es), ${memorySummary.rejectedPatches} rejected patch(es)`,
     ];
   }
@@ -1641,6 +1692,9 @@ function buildNoChangesSummaryLines(
       `- Accepted patches: ${memorySummary.acceptedPatches}`,
       `- Rejected patches: ${memorySummary.rejectedPatches}`,
       `- Known flaky tests: ${memorySummary.knownFlakyTests}`,
+      `- Memory confidence: ${memorySummary.confidenceHint}`,
+      `- Confidence note: ${memorySummary.confidenceExplanation}`,
+      ...patternLines,
       ...memoryLines,
       '',
       '</details>',
@@ -1662,6 +1716,9 @@ function buildNoChangesSummaryLines(
     `- Accepted patches: ${memorySummary.acceptedPatches}`,
     `- Rejected patches: ${memorySummary.rejectedPatches}`,
     `- Known flaky tests: ${memorySummary.knownFlakyTests}`,
+    `- Memory confidence: ${memorySummary.confidenceHint}`,
+    `- Confidence note: ${memorySummary.confidenceExplanation}`,
+    ...patternLines,
     ...memoryLines,
   ];
 }
@@ -1741,6 +1798,14 @@ async function buildCiSummary(
   const reasonCodeLines = summaryReasonCodes.length
     ? summaryReasonCodes.map((code) => `- \`${code}\`: ${reasonDescription(code)}`)
     : ['- none'];
+  const patternSignalLines = memorySummary.topPatternSignals.length
+    ? memorySummary.topPatternSignals.map(
+        (entry) =>
+          `- \`${entry.pattern}\`: attempts=${entry.attempts}, accept=${Math.round(
+            entry.acceptanceRate * 100
+          )}%, re-break=${Math.round(entry.rebreakRate * 100)}%`
+      )
+    : ['- none'];
 
   let lines: string[];
   if (format === 'plain') {
@@ -1752,6 +1817,7 @@ async function buildCiSummary(
       `Run first: ${highestPriority.join(', ') || 'manual review'}`,
       `Auto-fix: ${autoFix ? `${autoFix.targetFile} - ${autoFix.reason}` : 'none'}`,
       `Reason codes: ${formatReasonCodeInline(summaryReasonCodes)}`,
+      `Memory confidence: ${memorySummary.confidenceHint} (${memorySummary.confidenceExplanation})`,
       `Memory: ${memorySummary.failedRuns} failed run(s), ${memorySummary.acceptedPatches} accepted patch(es)`,
     ];
   } else if (format === 'github') {
@@ -1790,6 +1856,9 @@ async function buildCiSummary(
       `- Accepted patches: ${memorySummary.acceptedPatches}`,
       `- Rejected patches: ${memorySummary.rejectedPatches}`,
       `- Known flaky tests: ${memorySummary.knownFlakyTests}`,
+      `- Memory confidence: ${memorySummary.confidenceHint}`,
+      `- Confidence note: ${memorySummary.confidenceExplanation}`,
+      ...patternSignalLines,
       ...(memorySummary.topFailingTests.length
         ? memorySummary.topFailingTests.map((entry) => `- \`${entry.file}\` (${entry.count})`)
         : ['- none']),
@@ -1820,6 +1889,8 @@ async function buildCiSummary(
       `- Run first: ${highestPriority.join(', ') || 'manual review'}`,
       `- Auto-fix: ${autoFix ? `${autoFix.targetFile} (${Math.round(autoFix.confidence * 100)}%)` : 'none'}`,
       `- Reason codes: ${formatReasonCodeInline(summaryReasonCodes)}`,
+      `- Memory confidence: ${memorySummary.confidenceHint}`,
+      `- Confidence note: ${memorySummary.confidenceExplanation}`,
       `- Memory: ${memorySummary.failedRuns} failed run(s), ${memorySummary.acceptedPatches} accepted patch(es)`,
       '',
       '### Suggested run targets',
@@ -2309,6 +2380,7 @@ function createEmptyRepoMemory(repoPath: string): AutoQaRepoMemory {
     recentFailures: [],
     acceptedPatches: [],
     rejectedPatches: [],
+    patternStats: [],
     selectorHistory: [],
     routeHistory: [],
   };
@@ -2342,6 +2414,18 @@ function sanitizeMemoryRecord(input: unknown, repoPath: string): AutoQaRepoMemor
       : [],
     rejectedPatches: Array.isArray(value.rejectedPatches)
       ? value.rejectedPatches.filter((entry): entry is MemoryPatchRecord => Boolean(entry && typeof entry === 'object'))
+      : [],
+    patternStats: Array.isArray(value.patternStats)
+      ? value.patternStats
+          .filter((entry): entry is MemoryPatternStat => Boolean(entry && typeof entry === 'object'))
+          .map((entry) => ({
+            pattern: isLearningPattern(entry.pattern) ? entry.pattern : 'unknown',
+            attempts: Math.max(0, Math.floor(Number(entry.attempts) || 0)),
+            accepted: Math.max(0, Math.floor(Number(entry.accepted) || 0)),
+            failed: Math.max(0, Math.floor(Number(entry.failed) || 0)),
+            rebreaks: Math.max(0, Math.floor(Number(entry.rebreaks) || 0)),
+            lastUpdated: typeof entry.lastUpdated === 'string' ? entry.lastUpdated : fallback.updatedAt,
+          }))
       : [],
     selectorHistory: Array.isArray(value.selectorHistory)
       ? value.selectorHistory.filter((entry): entry is MemorySelectorHistoryEntry => Boolean(entry && typeof entry === 'object'))
@@ -2397,6 +2481,50 @@ function trimToSize<T>(items: T[], max: number) {
   return items.slice(items.length - max);
 }
 
+function upsertPatternStats(
+  stats: MemoryPatternStat[],
+  patterns: LearningPattern[],
+  status: 'passed' | 'failed' | 'skipped',
+  rebreakDetected: boolean,
+  timestamp: string
+) {
+  const next = new Map<LearningPattern, MemoryPatternStat>();
+
+  for (const entry of stats) {
+    next.set(entry.pattern, { ...entry });
+  }
+
+  for (const pattern of dedupeStrings(patterns) as LearningPattern[]) {
+    const current = next.get(pattern) ?? {
+      pattern,
+      attempts: 0,
+      accepted: 0,
+      failed: 0,
+      rebreaks: 0,
+      lastUpdated: timestamp,
+    };
+
+    current.attempts += 1;
+    if (status === 'passed') {
+      current.accepted += 1;
+    } else if (status === 'failed') {
+      current.failed += 1;
+      if (rebreakDetected) {
+        current.rebreaks += 1;
+      }
+    }
+    current.lastUpdated = timestamp;
+    next.set(pattern, current);
+  }
+
+  return Array.from(next.values()).sort(
+    (left, right) =>
+      right.lastUpdated.localeCompare(left.lastUpdated) ||
+      right.attempts - left.attempts ||
+      left.pattern.localeCompare(right.pattern)
+  );
+}
+
 function extractReplacementHistory(
   patch: SuggestedPatch,
   sourceFile: string,
@@ -2428,6 +2556,11 @@ async function writeRepoMemoryAfterVerification(
   const { memoryPath, memory } = await localRepoMemoryAdapter.read(repoPath);
   const now = new Date().toISOString();
   const evidenceKinds = Array.from(new Set(verification.evidenceUsed.map((item) => item.kind)));
+  const learningPatterns = deriveLearningPatterns(issue, verification.patch.reason, evidenceKinds);
+  const hadPriorAcceptedPatch = memory.acceptedPatches.some(
+    (entry) => entry.targetFile === verification.patch.targetFile
+  );
+  const rebreakDetected = verification.status === 'failed' && hadPriorAcceptedPatch;
   const tests = verification.execution.tests;
   const failureRecord: MemoryFailureRecord = {
     timestamp: now,
@@ -2439,6 +2572,7 @@ async function writeRepoMemoryAfterVerification(
     timestamp: now,
     issue,
     targetFile: verification.patch.targetFile,
+    patterns: learningPatterns,
     confidenceLevel: verification.patch.confidenceLevel,
     applied: verification.patch.applied,
     status: verification.status,
@@ -2460,6 +2594,10 @@ async function writeRepoMemoryAfterVerification(
       verification.status !== 'passed'
         ? trimToSize([...memory.rejectedPatches, patchRecord], MEMORY_MAX_REJECTED_PATCHES)
         : memory.rejectedPatches,
+    patternStats: trimToSize(
+      upsertPatternStats(memory.patternStats, learningPatterns, verification.status, rebreakDetected, now),
+      MEMORY_MAX_PATTERN_STATS
+    ),
     selectorHistory: trimToSize(
       [...memory.selectorHistory, ...extractReplacementHistory(verification.patch, verification.patch.targetFile, 'selector')],
       MEMORY_MAX_SELECTOR_HISTORY
@@ -2775,6 +2913,90 @@ function detectArtifactKind(text: string): ArtifactEvidenceKind {
   return 'unknown';
 }
 
+function mapArtifactKindToLearningPattern(kind: ArtifactEvidenceKind): LearningPattern {
+  switch (kind) {
+    case 'selector_drift':
+      return 'selector';
+    case 'text_drift':
+      return 'text';
+    case 'navigation_drift':
+      return 'navigation';
+    case 'timing_issue':
+      return 'timing';
+    case 'auth_issue':
+      return 'auth';
+    case 'fixture_issue':
+      return 'fixture';
+    default:
+      return 'unknown';
+  }
+}
+
+function deriveLearningPatterns(
+  issue: string,
+  patchReason: string,
+  evidenceKinds: ArtifactEvidenceKind[]
+): LearningPattern[] {
+  const patterns = new Set<LearningPattern>();
+  const combined = `${issue} ${patchReason}`.toLowerCase();
+
+  if (
+    combined.includes('selector') ||
+    combined.includes('locator') ||
+    combined.includes('getbyrole') ||
+    combined.includes('getbytestid')
+  ) {
+    patterns.add('selector');
+  }
+  if (
+    combined.includes('text') ||
+    combined.includes('label') ||
+    combined.includes('copy') ||
+    combined.includes('tohavetext')
+  ) {
+    patterns.add('text');
+  }
+  if (
+    combined.includes('route') ||
+    combined.includes('navigation') ||
+    combined.includes('page.goto') ||
+    combined.includes('href') ||
+    combined.includes('url')
+  ) {
+    patterns.add('navigation');
+  }
+  if (
+    combined.includes('timeout') ||
+    combined.includes('timing') ||
+    combined.includes('networkidle') ||
+    combined.includes('waitfor')
+  ) {
+    patterns.add('timing');
+  }
+  if (
+    combined.includes('auth') ||
+    combined.includes('token') ||
+    combined.includes('unauthorized') ||
+    combined.includes('401') ||
+    combined.includes('403')
+  ) {
+    patterns.add('auth');
+  }
+  if (combined.includes('fixture') || combined.includes('beforeeach') || combined.includes('setup')) {
+    patterns.add('fixture');
+  }
+
+  for (const kind of evidenceKinds) {
+    patterns.add(mapArtifactKindToLearningPattern(kind));
+  }
+
+  if (patterns.size === 0) {
+    patterns.add('unknown');
+  }
+
+  return Array.from(patterns);
+}
+
 function buildSnippet(text: string) {
   return text
     .replace(/\s+/g, ' ')
@@ -3046,6 +3268,113 @@ function derivePatchIssuesFromChanges(changedFiles: string[], diffSignals: DiffS
   }
 
   return dedupeStrings(issues);
+}
+
+function deriveLearningPatternsFromDiffSignals(diffSignals: DiffSignal[]): LearningPattern[] {
+  const patterns = new Set<LearningPattern>();
+
+  for (const signal of diffSignals) {
+    if (signal.changeTypes.includes('selector')) {
+      patterns.add('selector');
+    }
+    if (signal.changeTypes.includes('text')) {
+      patterns.add('text');
+    }
+    if (signal.changeTypes.includes('navigation')) {
+      patterns.add('navigation');
+    }
+  }
+
+  if (!patterns.size) {
+    patterns.add('unknown');
+  }
+
+  return Array.from(patterns);
+}
+
+function inferTargetPatterns(content: string, targetFile: string): LearningPattern[] {
+  const normalized = `${targetFile} ${content}`.toLowerCase();
+  const patterns = new Set<LearningPattern>();
+
+  if (
+    normalized.includes('locator(') ||
+    normalized.includes('getbyrole') ||
+    normalized.includes('getbytestid') ||
+    normalized.includes('data-testid')
+  ) {
+    patterns.add('selector');
+  }
+  if (
+    normalized.includes('tohavetext') ||
+    normalized.includes('getbytext') ||
+    normalized.includes('label') ||
+    normalized.includes('text')
+  ) {
+    patterns.add('text');
+  }
+  if (
+    normalized.includes('page.goto') ||
+    normalized.includes('url') ||
+    normalized.includes('href') ||
+    normalized.includes('navigation')
+  ) {
+    patterns.add('navigation');
+  }
+  if (
+    normalized.includes('timeout') ||
+    normalized.includes('networkidle') ||
+    normalized.includes('waitfor')
+  ) {
+    patterns.add('timing');
+  }
+  if (
+    normalized.includes('auth') ||
+    normalized.includes('login') ||
+    normalized.includes('token') ||
+    normalized.includes('unauthorized')
+  ) {
+    patterns.add('auth');
+  }
+  if (
+    normalized.includes('fixture') ||
+    normalized.includes('beforeeach') ||
+    normalized.includes('setup')
+  ) {
+    patterns.add('fixture');
+  }
+
+  if (!patterns.size) {
+    patterns.add('unknown');
+  }
+
+  return Array.from(patterns);
+}
+
+function scorePatternPerformanceForTarget(
+  stats: MemoryPatternStat[],
+  hintPatterns: LearningPattern[],
+  targetPatterns: LearningPattern[]
+) {
+  const hintSet = new Set(hintPatterns);
+  const targetSet = new Set(targetPatterns);
+  let score = 0;
+
+  for (const stat of stats) {
+    if (!hintSet.has(stat.pattern) || !targetSet.has(stat.pattern)) {
+      continue;
+    }
+
+    if (stat.attempts < 2) {
+      continue;
+    }
+
+    const acceptanceRate = stat.accepted / stat.attempts;
+    const rebreakRate = stat.rebreaks / stat.attempts;
+    const performance = acceptanceRate - rebreakRate * 1.25 - 0.45;
+    score += Math.max(-1, Math.min(1, performance)) * 4;
+  }
+
+  return score;
 }
 
 function buildSemanticPatchProposal(
@@ -3363,9 +3692,74 @@ function resolvePolicySource(
   return settings.policySource;
 }
 
+function summarizePatternSignals(stats: MemoryPatternStat[]) {
+  return stats
+    .filter((entry) => entry.attempts > 0)
+    .map((entry) => {
+      const acceptanceRate = entry.accepted / entry.attempts;
+      const rebreakRate = entry.rebreaks / entry.attempts;
+      const failureRate = entry.failed / entry.attempts;
+      const score = acceptanceRate - failureRate * 0.25 - rebreakRate * 1.25;
+      return {
+        pattern: entry.pattern,
+        attempts: entry.attempts,
+        acceptanceRate,
+        rebreakRate,
+        score,
+      };
+    })
+    .sort(
+      (left, right) =>
+        right.attempts - left.attempts ||
+        Math.abs(right.score) - Math.abs(left.score) ||
+        left.pattern.localeCompare(right.pattern)
+    );
+}
+
+function computeMemoryConfidence(
+  signals: Array<{ pattern: LearningPattern; attempts: number; acceptanceRate: number; rebreakRate: number; score: number }>
+): Pick<RepoMemorySummary, 'confidenceHint' | 'confidenceExplanation'> {
+  const totalAttempts = signals.reduce((acc, item) => acc + item.attempts, 0);
+  if (totalAttempts < 3) {
+    return {
+      confidenceHint: 'insufficient_data',
+      confidenceExplanation: 'Not enough memory samples yet; treat recommendations as exploratory.',
+    };
+  }
+
+  const weightedScore =
+    signals.reduce((acc, item) => acc + item.score * item.attempts, 0) / totalAttempts;
+  const overallRebreakRate =
+    signals.reduce((acc, item) => acc + item.rebreakRate * item.attempts, 0) / totalAttempts;
+  const topSignal = signals[0];
+
+  if (weightedScore >= 0.25 && overallRebreakRate <= 0.15) {
+    return {
+      confidenceHint: 'high',
+      confidenceExplanation: `Memory trends are stable (top pattern: ${topSignal.pattern}, ${Math.round(
+        topSignal.acceptanceRate * 100
+      )}% acceptance).`,
+    };
+  }
+
+  if (weightedScore >= 0) {
+    return {
+      confidenceHint: 'medium',
+      confidenceExplanation: `Memory trends are mixed; review ${topSignal.pattern} changes carefully.`,
+    };
+  }
+
+  return {
+    confidenceHint: 'low',
+    confidenceExplanation: `Recent memory signals are unstable (re-break risk elevated in ${topSignal.pattern}).`,
+  };
+}
+
 function buildRepoMemorySummary(memory: AutoQaRepoMemory): RepoMemorySummary {
   const failingCounts = new Map<string, number>();
   const failedRuns = memory.recentFailures.filter((entry) => entry.status === 'failed');
+  const patternSignals = summarizePatternSignals(memory.patternStats).slice(0, 3);
+  const confidence = computeMemoryConfidence(patternSignals);
 
   for (const failure of failedRuns) {
     for (const testFile of failure.tests) {
@@ -3379,6 +3773,9 @@ function buildRepoMemorySummary(memory: AutoQaRepoMemory): RepoMemorySummary {
     failedRuns: failedRuns.length,
     acceptedPatches: memory.acceptedPatches.length,
     rejectedPatches: memory.rejectedPatches.length,
+    confidenceHint: confidence.confidenceHint,
+    confidenceExplanation: confidence.confidenceExplanation,
+    topPatternSignals: patternSignals,
     topFailingTests: Array.from(failingCounts.entries())
       .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
       .slice(0, 3)
@@ -3418,6 +3815,18 @@ function isAutomationMode(value: unknown): value is AutomationMode {
     value === 'suggest_only' ||
     value === 'guarded_apply' ||
     value === 'auto_apply'
+  );
+}
+
+function isLearningPattern(value: unknown): value is LearningPattern {
+  return (
+    value === 'selector' ||
+    value === 'text' ||
+    value === 'navigation' ||
+    value === 'timing' ||
+    value === 'auth' ||
+    value === 'fixture' ||
+    value === 'unknown'
   );
 }
 

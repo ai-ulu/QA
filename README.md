@@ -100,6 +100,7 @@ Artifact-aware patching:
 Repo memory:
 
 - `autoqa_verify_patch` her calisma sonunda `.autoqa/state/memory.json` dosyasini gunceller.
+- Memory icinde pattern bazli ogrenme istatistikleri tutulur (`patternStats`).
 - `pnpm memory:inspect` ile memory ozetini inceleyebilirsin.
 - `pnpm memory:reset` ile local memory dosyasini sifirlayabilirsin.
 - Dosya local state oldugu icin `.gitignore` icinde tutulur.
@@ -129,6 +130,7 @@ Policy aktifken:
   - `automationSource`
   - `automationPattern`
 - `autoqa_ci_summary` clean diff durumlarinda `no_changes` status'u ile graceful ozet doner.
+- `autoqa_ci_summary` memory confidence hint sinyali de verir (`confidenceHint`, `confidenceExplanation`).
 - V3 WS1 ile stable reason-code sinyali:
   - `blockedReasonCodes` (`suggest`, `execute`, `verify`)
   - `warningCodes` (`targeted_run_plan`)

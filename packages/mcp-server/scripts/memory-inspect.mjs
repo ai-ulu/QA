@@ -36,6 +36,7 @@ function buildSummary(memory) {
     recentFailures: Array.isArray(memory.recentFailures) ? memory.recentFailures.length : 0,
     acceptedPatches: Array.isArray(memory.acceptedPatches) ? memory.acceptedPatches.length : 0,
     rejectedPatches: Array.isArray(memory.rejectedPatches) ? memory.rejectedPatches.length : 0,
+    patternStats: Array.isArray(memory.patternStats) ? memory.patternStats.length : 0,
     selectorHistory: Array.isArray(memory.selectorHistory) ? memory.selectorHistory.length : 0,
     routeHistory: Array.isArray(memory.routeHistory) ? memory.routeHistory.length : 0,
   };

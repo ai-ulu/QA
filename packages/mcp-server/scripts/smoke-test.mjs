@@ -913,6 +913,10 @@ try {
   assert.ok(Array.isArray(memoryJson.acceptedPatches));
   assert.ok(memoryJson.acceptedPatches.length > 0);
   assert.equal(memoryJson.acceptedPatches.at(-1).targetFile, 'tests/login.spec.ts');
+  assert.ok(Array.isArray(memoryJson.acceptedPatches.at(-1).patterns));
+  assert.ok(Array.isArray(memoryJson.patternStats));
+  assert.ok(memoryJson.patternStats.length > 0);
+  assert.ok(memoryJson.patternStats.some((entry) => entry.pattern === 'selector'));
 
   await writeFile(
     join(repoFixturePath, 'src', 'app.tsx'),
@@ -963,11 +967,13 @@ try {
   assert.match(workingTreeSummaryPayload.summary, /\*\*Mode:\*\* Working tree QA summary \(unstaged\)/);
   assert.match(workingTreeSummaryPayload.summary, /tests\/login\.spec\.ts/);
   assert.match(workingTreeSummaryPayload.summary, /<summary>Repo memory<\/summary>/);
+  assert.match(workingTreeSummaryPayload.summary, /Memory confidence:/);
   assert.match(workingTreeSummaryPayload.summary, /<!-- autoqa:pr-comment:block:end -->/);
   assert.ok(workingTreeSummaryPayload.changedFiles.includes('src/app.tsx'));
   assert.ok(workingTreeSummaryPayload.changedFiles.includes('src/profile-link.tsx'));
   assert.ok(workingTreeSummaryPayload.memorySummary.failedRuns >= 0);
   assert.ok(workingTreeSummaryPayload.memorySummary.acceptedPatches > 0);
+  assert.equal(typeof workingTreeSummaryPayload.memorySummary.confidenceHint, 'string');
   assert.ok(Array.isArray(workingTreeSummaryPayload.reasonCodes));
 
   await execFileAsync('git', ['add', 'src/app.tsx', 'src/profile-link.tsx'], { cwd: repoFixturePath });
@@ -1049,6 +1055,7 @@ try {
   const noChangesSummaryPayload = JSON.parse(extractText(noChangesSummaryResult));
   assert.equal(noChangesSummaryPayload.status, 'no_changes');
   assert.match(noChangesSummaryPayload.summary, /No changes detected/i);
+  assert.match(noChangesSummaryPayload.summary, /Memory confidence:/i);
   assert.match(noChangesSummaryPayload.summary, /Reason codes:/i);
   assert.ok(Array.isArray(noChangesSummaryPayload.reasonCodes));
   assert.ok(noChangesSummaryPayload.reasonCodes.includes('no_changes'));
