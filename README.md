@@ -64,6 +64,10 @@ Required CI workflow:
 
 - [AutoQA Quality Gates](.github/workflows/autoqa-quality-gates.yml)
 
+Roadmap:
+
+- [V3 Execution Plan](V3_EXECUTION_PLAN.md)
+
 ## MCP Surface
 
 Primary tools:
