@@ -53,10 +53,12 @@ node packages/mcp-server/scripts/ci-impact.mjs --repo . --auto-base --format git
 
 `pnpm dogfood` now treats `.dogfood/` as a temporary workspace and cleans cloned repos by default. Use `--keep-clones` only when you need to inspect a cloned target after the run.
 
-`pnpm dogfood:nightly` runs the curated pack in `--soft-fail` mode and writes structured artifacts:
+`pnpm dogfood:nightly` runs the curated pack in `--soft-fail` mode and writes structured local reports:
 
 - `packages/mcp-server/reports/autoqa-dogfood-latest.md`
 - `packages/mcp-server/reports/autoqa-dogfood-latest.json`
+
+The current GitHub Actions workflow publishes the markdown report to the step summary. Artifact upload is still a follow-up task.
 
 `pnpm ci:impact` prefers branch diff analysis with `--auto-base`. If there is no committed diff to compare, it falls back to working tree analysis instead of failing with a parse error.
 

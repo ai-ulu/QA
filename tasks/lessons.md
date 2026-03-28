@@ -60,3 +60,6 @@ Bu dosya tekrar eden hatalari azaltmak icin kalici calisma derslerini tutar.
 
 19. Multi-repo dogfood kosularini fail-fast yerine per-repo fail-safe tasarla.
     Tek bir repo clone/ci-impact hatasi tum kosuyu dusururse nightly sinyal kaybolur; repo bazli `status` + `reasonCode` kaydi ile ilerlemek ve sonunda toplu artifact uretmek daha guvenilir operasyon modeli saglar.
+
+20. Bu repo'da GitHub Actions `uses:` adimlarini dogrudan varsayma.
+    `actions/checkout` gibi standart gorunen `uses:` adimlari startup_failure uretebildigi icin workflow'u once shell-only olarak ayağa kaldir, sonra tek tek adim ekleyerek bisection yap.

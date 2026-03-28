@@ -166,7 +166,7 @@ pnpm run release:check
 
 `pnpm run dogfood` cleans cloned repositories under `.dogfood/` by default. Pass `--keep-clones` only when you want to inspect a cloned repo after the run.
 
-Dogfood artifacts:
+Dogfood reports:
 
 - Markdown report: `packages/mcp-server/reports/autoqa-dogfood-latest.md`
 - JSON report: `packages/mcp-server/reports/autoqa-dogfood-latest.json`
