@@ -11,7 +11,17 @@ permissions:
 jobs:
   dogfood-nightly:
     runs-on: ubuntu-latest
+    timeout-minutes: 120
 
     steps:
-      - name: Smoke
-        run: echo "AutoQA Dogfood Nightly started"
+      - name: Clone repo and run dogfood
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --depth 1 "https://github.com/${GITHUB_REPOSITORY}.git" "$GITHUB_WORKSPACE"
+          cd "$GITHUB_WORKSPACE"
+          corepack enable
+          corepack prepare pnpm@10 --activate
+          pnpm install --frozen-lockfile
+          pnpm dogfood:nightly
+          cat packages/mcp-server/reports/autoqa-dogfood-latest.md >> "$GITHUB_STEP_SUMMARY"
