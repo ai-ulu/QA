@@ -13,5 +13,8 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
       - name: Smoke
         run: echo "AutoQA Dogfood Nightly started"
