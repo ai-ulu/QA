@@ -103,6 +103,21 @@ type PolicyReasonCode =
   | 'below_apply_threshold'
   | 'below_verify_threshold'
   | 'test_budget_capped';
+type FlowReasonCode = 'no_changes' | 'no_patch_suggestion' | 'no_affected_tests';
+type ReasonCode = PolicyReasonCode | FlowReasonCode;
+
+const REASON_CODE_DESCRIPTIONS: Record<ReasonCode, string> = {
+  not_in_allow_list: 'Target file is outside the configured patch allow list.',
+  matched_deny_rule: 'Target file matched a configured patch deny rule.',
+  protected_file: 'Target file matched protected-file policy.',
+  branch_report_only: 'Apply mode is report-only due to branch or CLI policy override.',
+  below_apply_threshold: 'Patch confidence is below the apply threshold.',
+  below_verify_threshold: 'Patch confidence is below the verify threshold.',
+  test_budget_capped: 'Requested test count exceeded the policy test budget.',
+  no_changes: 'Selected diff scope has no relevant file changes.',
+  no_patch_suggestion: 'No automatic patch suggestion was derived from the diff.',
+  no_affected_tests: 'No affected tests were inferred; manual QA review is recommended.',
+};
 
 type PolicyTrace = {
   mode: PolicyMode;
@@ -242,6 +257,7 @@ type CiSummary = {
   suggestedRunTargets: string[];
   changedFiles: string[];
   memorySummary: RepoMemorySummary;
+  reasonCodes: ReasonCode[];
 };
 
 type TargetedRunPlan = {
@@ -262,6 +278,7 @@ type TargetedRunPlan = {
   }>;
   confidenceLevel: ConfidenceLevel;
   warnings: string[];
+  warningCodes: ReasonCode[];
 };
 
 type RunPlanExecution = {
@@ -1485,11 +1502,14 @@ async function buildTargetedRunPlan(
     .map((entry) => entry.file);
 
   const warnings: string[] = [];
+  const warningCodes: ReasonCode[] = [];
   if (analysis.suggestedPatches.length === 0) {
-    warnings.push('No automatic patch suggestion was derived from the current diff.');
+    warnings.push(reasonDescription('no_patch_suggestion'));
+    warningCodes.push('no_patch_suggestion');
   }
   if (analysis.affectedTests.length === 0) {
-    warnings.push('No affected tests were inferred; manual QA review is recommended.');
+    warnings.push(reasonDescription('no_affected_tests'));
+    warningCodes.push('no_affected_tests');
   }
 
   return {
@@ -1515,6 +1535,7 @@ async function buildTargetedRunPlan(
     ],
     confidenceLevel: analysis.confidenceLevel,
     warnings,
+    warningCodes: dedupeReasonCodes(warningCodes),
   };
 }
 
@@ -1543,8 +1564,13 @@ function buildNoChangesDiffSource(
 function buildNoChangesSummaryLines(
   format: 'markdown' | 'github' | 'plain',
   header: string,
-  memorySummary: RepoMemorySummary
+  memorySummary: RepoMemorySummary,
+  reasonCodes: ReasonCode[]
 ) {
+  const dedupedReasonCodes = dedupeReasonCodes(reasonCodes);
+  const reasonCodeLines = dedupedReasonCodes.length
+    ? dedupedReasonCodes.map((code) => `- \`${code}\`: ${reasonDescription(code)}`)
+    : ['- none'];
   const memoryLines = memorySummary.topFailingTests.length
     ? memorySummary.topFailingTests.map((entry) => `- \`${entry.file}\` (${entry.count})`)
     : ['- none'];
@@ -1553,6 +1579,7 @@ function buildNoChangesSummaryLines(
     return [
       header,
       'No changes detected for the selected diff scope.',
+      `Reason codes: ${formatReasonCodeInline(dedupedReasonCodes)}`,
       `Memory: ${memorySummary.failedRuns} failed run(s), ${memorySummary.acceptedPatches} accepted patch(es), ${memorySummary.rejectedPatches} rejected patch(es)`,
     ];
   }
@@ -1574,6 +1601,7 @@ function buildNoChangesSummaryLines(
       '<summary>No changes</summary>',
       '',
       '- No changes detected for the selected diff scope.',
+      ...reasonCodeLines,
       '',
       '</details>',
       '',
@@ -1596,6 +1624,9 @@ function buildNoChangesSummaryLines(
     `## ${header}`,
     '',
     '- No changes detected for the selected diff scope.',
+    '',
+    '### Reason codes',
+    ...reasonCodeLines,
     '',
     '### Repo memory',
     `- Failed runs: ${memorySummary.failedRuns}`,
@@ -1654,16 +1685,18 @@ async function buildCiSummary(
       diffSource.mode === 'working_tree'
         ? `Working tree QA summary (${diffSource.staged ? 'staged' : 'unstaged'})`
         : 'QA summary';
+    const noChangesReasonCodes: ReasonCode[] = ['no_changes'];
     return {
       repoPath: resolvedRepoPath,
       status: 'no_changes',
       format,
       diffSource,
-      summary: buildNoChangesSummaryLines(format, header, memorySummary).join('\n'),
+      summary: buildNoChangesSummaryLines(format, header, memorySummary, noChangesReasonCodes).join('\n'),
       affectedTests: [],
       suggestedRunTargets: [],
       changedFiles: [],
       memorySummary,
+      reasonCodes: noChangesReasonCodes,
     };
   }
 
@@ -1675,6 +1708,10 @@ async function buildCiSummary(
     analysis.diffSource.mode === 'working_tree'
       ? `Working tree QA summary (${analysis.diffSource.staged ? 'staged' : 'unstaged'})`
       : 'QA summary';
+  const summaryReasonCodes = dedupeReasonCodes(runPlan.warningCodes);
+  const reasonCodeLines = summaryReasonCodes.length
+    ? summaryReasonCodes.map((code) => `- \`${code}\`: ${reasonDescription(code)}`)
+    : ['- none'];
 
   let lines: string[];
   if (format === 'plain') {
@@ -1685,6 +1722,7 @@ async function buildCiSummary(
       `Highest-risk test: ${highestRisk}`,
       `Run first: ${highestPriority.join(', ') || 'manual review'}`,
       `Auto-fix: ${autoFix ? `${autoFix.targetFile} - ${autoFix.reason}` : 'none'}`,
+      `Reason codes: ${formatReasonCodeInline(summaryReasonCodes)}`,
       `Memory: ${memorySummary.failedRuns} failed run(s), ${memorySummary.acceptedPatches} accepted patch(es)`,
     ];
   } else if (format === 'github') {
@@ -1736,6 +1774,9 @@ async function buildCiSummary(
         ? runPlan.warnings.map((warning) => `- ${warning}`)
         : ['- No blocking warnings.']),
       '',
+      'Reason codes:',
+      ...reasonCodeLines,
+      '',
       '</details>',
       '',
       AUTOQA_PR_COMMENT_BLOCK_END,
@@ -1749,6 +1790,7 @@ async function buildCiSummary(
       `- Highest-risk test: ${highestRisk}`,
       `- Run first: ${highestPriority.join(', ') || 'manual review'}`,
       `- Auto-fix: ${autoFix ? `${autoFix.targetFile} (${Math.round(autoFix.confidence * 100)}%)` : 'none'}`,
+      `- Reason codes: ${formatReasonCodeInline(summaryReasonCodes)}`,
       `- Memory: ${memorySummary.failedRuns} failed run(s), ${memorySummary.acceptedPatches} accepted patch(es)`,
       '',
       '### Suggested run targets',
@@ -1773,6 +1815,7 @@ async function buildCiSummary(
     suggestedRunTargets: analysis.suggestedRunTargets,
     changedFiles: analysis.changedFiles,
     memorySummary,
+    reasonCodes: summaryReasonCodes,
   };
 }
 
@@ -3127,6 +3170,22 @@ function basenameWithoutExtensions(value: string) {
 
 function dedupeStrings(values: string[]) {
   return Array.from(new Set(values));
+}
+
+function dedupeReasonCodes(values: ReasonCode[]) {
+  return Array.from(new Set(values));
+}
+
+function reasonDescription(code: ReasonCode) {
+  return REASON_CODE_DESCRIPTIONS[code];
+}
+
+function formatReasonCodeInline(codes: ReasonCode[]) {
+  if (!codes.length) {
+    return 'none';
+  }
+
+  return dedupeReasonCodes(codes).join(', ');
 }
 
 function confidenceLevelFromValue(value: number): ConfidenceLevel {

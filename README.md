@@ -59,6 +59,7 @@ node packages/mcp-server/scripts/ci-impact.mjs --repo . --auto-base --format git
 Operator guide:
 
 - [5-minute operator guide](docs/operator-guide.md)
+- [Reason code taxonomy](docs/reason-codes.md)
 
 Required CI workflow:
 
@@ -122,6 +123,10 @@ Policy aktifken:
   - `repo_config`
   - `cli_override`
 - `autoqa_ci_summary` clean diff durumlarinda `no_changes` status'u ile graceful ozet doner.
+- V3 WS1 ile stable reason-code sinyali:
+  - `blockedReasonCodes` (`suggest`, `execute`, `verify`)
+  - `warningCodes` (`targeted_run_plan`)
+  - `reasonCodes` (`ci_summary`)
 - CLI override ile `policyMode: report_only|enforce|auto` secilebilir.
 
 ## Scope

@@ -106,10 +106,15 @@ Behavior:
 Clean diff handling:
 
 - `autoqa_ci_summary` selected flows now return `status: "no_changes"` instead of hard fail when the selected diff scope is empty.
+- V3 WS1 reason-code contract:
+  - `blockedReasonCodes` for `suggest`, `execute`, `verify`
+  - `warningCodes` for `targeted_run_plan`
+  - `reasonCodes` for `ci_summary`
 
 Operator guide:
 
 - See [docs/operator-guide.md](../../docs/operator-guide.md)
+- See [docs/reason-codes.md](../../docs/reason-codes.md)
 
 V2 milestone gate:
 
@@ -138,8 +143,8 @@ Run this before publishing:
 
 ```bash
 pnpm run release:check
+```
 
 `pnpm run dogfood` cleans cloned repositories under `.dogfood/` by default. Pass `--keep-clones` only when you want to inspect a cloned repo after the run.
 
 `pnpm run ci:impact` prefers merge-base diff analysis and falls back to working tree analysis when the current branch has no committed diff to compare.
-```

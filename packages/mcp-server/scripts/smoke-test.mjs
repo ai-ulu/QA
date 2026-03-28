@@ -576,6 +576,7 @@ try {
   assert.ok(Array.isArray(targetedRunPlanPayload.runGroups));
   assert.equal(targetedRunPlanPayload.runGroups[0].label, 'highest_priority');
   assert.ok(targetedRunPlanPayload.runGroups[0].tests.includes('tests/login.spec.ts'));
+  assert.ok(Array.isArray(targetedRunPlanPayload.warningCodes));
 
   await execFileAsync('git', ['add', 'src/login-button.tsx'], { cwd: repoFixturePath });
   await execFileAsync('git', ['commit', '-m', 'update login button'], { cwd: repoFixturePath });
@@ -713,6 +714,7 @@ try {
   assert.ok(workingTreeSummaryPayload.changedFiles.includes('src/profile-link.tsx'));
   assert.ok(workingTreeSummaryPayload.memorySummary.failedRuns >= 0);
   assert.ok(workingTreeSummaryPayload.memorySummary.acceptedPatches > 0);
+  assert.ok(Array.isArray(workingTreeSummaryPayload.reasonCodes));
 
   await execFileAsync('git', ['add', 'src/app.tsx', 'src/profile-link.tsx'], { cwd: repoFixturePath });
 
@@ -731,6 +733,7 @@ try {
   assert.equal(stagedSummaryPayload.diffSource.staged, true);
   assert.match(stagedSummaryPayload.summary, /Working tree QA summary \(staged\)/);
   assert.match(stagedSummaryPayload.summary, /Run first: tests\/login\.spec\.ts/);
+  assert.match(stagedSummaryPayload.summary, /Reason codes:/);
   assert.ok(stagedSummaryPayload.changedFiles.includes('src/profile-link.tsx'));
 
   const dryRunPatchResult = await client.callTool({
@@ -792,6 +795,9 @@ try {
   const noChangesSummaryPayload = JSON.parse(extractText(noChangesSummaryResult));
   assert.equal(noChangesSummaryPayload.status, 'no_changes');
   assert.match(noChangesSummaryPayload.summary, /No changes detected/i);
+  assert.match(noChangesSummaryPayload.summary, /Reason codes:/i);
+  assert.ok(Array.isArray(noChangesSummaryPayload.reasonCodes));
+  assert.ok(noChangesSummaryPayload.reasonCodes.includes('no_changes'));
   assert.equal(noChangesSummaryPayload.changedFiles.length, 0);
 
   console.log('MCP smoke test passed');
