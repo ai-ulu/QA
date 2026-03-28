@@ -29,7 +29,7 @@ Basari kosulu:
 2. `[x]` `dogfood.mjs` akisini per-repo status + reasonCode + artifact modeline cevir.
 3. `[x]` nightly workflow dosyasini ekle (`autoqa-dogfood-nightly.yml`).
 4. `[x]` README/DOGFOOD ve package README dokumanlarini yeni akisla guncelle.
-5. `[x]` `pnpm build`, `pnpm test`, `pnpm run v2:gate`, `pnpm dogfood -- --limit 1 --soft-fail` ile dogrula.
+5. `[x]` `pnpm build`, `pnpm test`, `pnpm run v2:gate`, `pnpm dogfood -- --soft-fail` ile dogrula.
 
 ## Verification
 
@@ -37,7 +37,7 @@ Basari kosulu:
   - `pnpm build`
   - `pnpm test`
   - `pnpm run v2:gate`
-  - `pnpm dogfood -- --limit 1 --soft-fail`
+  - `pnpm dogfood -- --soft-fail`
 - Beklenen kanit:
   - dogfood run sonunda `autoqa-dogfood-latest.md` ve `.json` dosyalari yazilmis olmali
   - raporda `status`/`reasonCode` dagilimi gorunmeli
@@ -47,7 +47,7 @@ Basari kosulu:
   - `pnpm build`
   - `pnpm test`
   - `pnpm run v2:gate`
-  - `pnpm dogfood -- --limit 1 --soft-fail`
+  - `pnpm dogfood -- --soft-fail` (12 repo, 12 passed, 0 failed)
 
 ## Review
 

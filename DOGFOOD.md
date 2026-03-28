@@ -49,6 +49,14 @@ Ek olarak timestampli kopyalar da tutulur:
 - `packages/mcp-server/reports/autoqa-dogfood-<timestamp>.md`
 - `packages/mcp-server/reports/autoqa-dogfood-<timestamp>.json`
 
+## Son Dogrulama
+
+- Tarih: 2026-03-29
+- Komut: `pnpm dogfood -- --soft-fail`
+- Secilen repo: 12
+- Sonuc: 12 passed / 0 failed
+- Kanit: `packages/mcp-server/reports/autoqa-dogfood-latest.md` ve `.json`
+
 ## Failure Model
 
 Dogfood artik repo bazinda hard-crash olmaz; her repo sonucu ayri kaydedilir:
