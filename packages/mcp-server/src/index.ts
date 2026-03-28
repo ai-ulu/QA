@@ -95,6 +95,13 @@ type RepoMemoryAdapter = {
 
 type PolicyMode = 'auto' | 'report_only' | 'enforce';
 type PolicySource = 'default' | 'repo_config' | 'cli_override';
+type AutomationMode = 'report_only' | 'suggest_only' | 'guarded_apply' | 'auto_apply';
+type AutomationSource =
+  | 'default'
+  | 'repo_config'
+  | 'branch_override'
+  | 'legacy_report_only_branch'
+  | 'cli_override';
 type PolicyReasonCode =
   | 'not_in_allow_list'
   | 'matched_deny_rule'
@@ -102,7 +109,8 @@ type PolicyReasonCode =
   | 'branch_report_only'
   | 'below_apply_threshold'
   | 'below_verify_threshold'
-  | 'test_budget_capped';
+  | 'test_budget_capped'
+  | 'automation_mode_blocked';
 type FlowReasonCode = 'no_changes' | 'no_patch_suggestion' | 'no_affected_tests';
 type ReasonCode = PolicyReasonCode | FlowReasonCode;
 
@@ -114,6 +122,7 @@ const REASON_CODE_DESCRIPTIONS: Record<ReasonCode, string> = {
   below_apply_threshold: 'Patch confidence is below the apply threshold.',
   below_verify_threshold: 'Patch confidence is below the verify threshold.',
   test_budget_capped: 'Requested test count exceeded the policy test budget.',
+  automation_mode_blocked: 'Requested action is blocked by active automation mode.',
   no_changes: 'Selected diff scope has no relevant file changes.',
   no_patch_suggestion: 'No automatic patch suggestion was derived from the diff.',
   no_affected_tests: 'No affected tests were inferred; manual QA review is recommended.',
@@ -122,6 +131,9 @@ const REASON_CODE_DESCRIPTIONS: Record<ReasonCode, string> = {
 type PolicyTrace = {
   mode: PolicyMode;
   source: PolicySource;
+  automationMode: AutomationMode;
+  automationSource: AutomationSource;
+  automationPattern?: string;
   applyThreshold: number;
   verifyThreshold?: number;
   shouldApply?: boolean;
@@ -314,6 +326,7 @@ type RepoSettings = {
   sourceDirectories: string[];
   policy: RepoPolicy;
   policySource: Exclude<PolicySource, 'cli_override'>;
+  automationConfigSource: Exclude<AutomationSource, 'branch_override' | 'legacy_report_only_branch' | 'cli_override'>;
 };
 
 type RepoPolicy = {
@@ -330,6 +343,13 @@ type RepoPolicy = {
   };
   testBudget: {
     maxTests: number;
+  };
+  automation: {
+    mode: AutomationMode;
+    branchOverrides: Array<{
+      pattern: string;
+      mode: AutomationMode;
+    }>;
   };
 };
 
@@ -1079,6 +1099,9 @@ async function suggestPatch(
   const policySource = resolvePolicySource(settings, policyMode, {
     applyThresholdOverride,
   });
+  const automationTrace = resolveAutomationTrace(settings, branchName, policyMode);
+  const requestedApply = Boolean(apply) || automationTrace.mode === 'auto_apply';
+  const applyRequestedByAutomation = !apply && automationTrace.mode === 'auto_apply';
   const memory = (await readRepoMemory(scan.repoPath)).memory;
   const issueLower = issue.toLowerCase();
   const artifactEvidence = await collectArtifactEvidence(scan.repoPath, reportDir, artifactPaths);
@@ -1152,15 +1175,18 @@ async function suggestPatch(
       settings.policy,
       relativeTarget,
       thresholdedConfidence,
-      Boolean(apply),
+      requestedApply,
       branchName,
       policyMode,
+      automationTrace,
       applyThresholdOverride
     );
     const shouldApply = policyDecision.shouldApply;
     const gatedReason = shouldApply
-      ? proposal.reason
-      : apply
+      ? applyRequestedByAutomation
+        ? `${proposal.reason} Auto-apply mode promoted this patch from dry-run to apply.`
+        : proposal.reason
+      : requestedApply
         ? `${proposal.reason} Apply request downgraded to dry-run.`
         : proposal.reason;
     const policyReason =
@@ -1204,6 +1230,9 @@ async function suggestPatch(
       policy: {
         mode: policyDecision.mode,
         source: policySource,
+        automationMode: policyDecision.automationMode,
+        automationSource: policyDecision.automationSource,
+        automationPattern: policyDecision.automationPattern,
         applyThreshold: policyDecision.applyThreshold,
         shouldApply: policyDecision.shouldApply,
         blockedReasons: policyDecision.blockedReasons,
@@ -1832,7 +1861,9 @@ async function executeRunPlan(
   sampleLimit: number
 ): Promise<RunPlanExecution> {
   const settings = await loadRepoSettings(repoPath);
+  const branchName = await readCurrentBranch(repoPath);
   const policySource = resolvePolicySource(settings, policyMode);
+  const automationTrace = resolveAutomationTrace(settings, branchName, policyMode);
   const runPlan = await buildTargetedRunPlan(
     repoPath,
     changedFiles,
@@ -1849,6 +1880,32 @@ async function executeRunPlan(
   const policyCap = policyMode === 'enforce' || policyMode === 'auto'
     ? settings.policy.testBudget.maxTests
     : maxTests;
+  const automationBlocksExecution =
+    automationTrace.mode === 'report_only' || automationTrace.mode === 'suggest_only';
+  const blockedReasons: string[] = [];
+  const blockedReasonCodes: PolicyReasonCode[] = [];
+  if (maxTests > policyCap) {
+    blockedReasons.push(`test budget capped requested ${maxTests} -> ${policyCap}`);
+    blockedReasonCodes.push('test_budget_capped');
+  }
+  if (automationBlocksExecution) {
+    if (automationTrace.mode === 'report_only' &&
+      (automationTrace.source === 'legacy_report_only_branch' || automationTrace.source === 'cli_override')) {
+      blockedReasons.push(
+        policyMode === 'report_only'
+          ? 'CLI policyMode=report_only disabled execution'
+          : `branch ${branchName} is configured as report_only`
+      );
+      blockedReasonCodes.push('branch_report_only');
+    } else {
+      const details =
+        automationTrace.source === 'branch_override' && automationTrace.pattern
+          ? ` via branch override (${automationTrace.pattern})`
+          : '';
+      blockedReasons.push(`automation mode ${automationTrace.mode} disabled execution${details}`);
+      blockedReasonCodes.push('automation_mode_blocked');
+    }
+  }
   const selectedTests = (highestPriority.length ? highestPriority : secondary).slice(
     0,
     Math.min(maxTests, policyCap)
@@ -1856,14 +1913,32 @@ async function executeRunPlan(
   const policyTrace: PolicyTrace = {
     mode: policyMode,
     source: policySource,
+    automationMode: automationTrace.mode,
+    automationSource: automationTrace.source,
+    ...(automationTrace.pattern ? { automationPattern: automationTrace.pattern } : {}),
     applyThreshold: settings.policy.confidenceThresholds.apply,
     verifyThreshold: settings.policy.confidenceThresholds.verify,
     maxTestsRequested: maxTests,
     maxTestsApplied: Math.min(maxTests, policyCap),
-    blockedReasons:
-      maxTests > policyCap ? [`test budget capped requested ${maxTests} -> ${policyCap}`] : [],
-    blockedReasonCodes: maxTests > policyCap ? ['test_budget_capped'] : [],
+    blockedReasons: dedupeStrings(blockedReasons),
+    blockedReasonCodes: dedupeStrings(blockedReasonCodes) as PolicyReasonCode[],
   };
+
+  if (automationBlocksExecution) {
+    return {
+      repoPath: resolve(repoPath),
+      command: [],
+      tests: [],
+      executed: false,
+      exitCode: 0,
+      status: 'skipped',
+      stdout: '',
+      stderr: `Run execution skipped by automation mode ${automationTrace.mode}.`,
+      blockedReasons: policyTrace.blockedReasons,
+      blockedReasonCodes: policyTrace.blockedReasonCodes,
+      policy: policyTrace,
+    };
+  }
 
   return executePlaywrightTests(repoPath, selectedTests, policyTrace);
 }
@@ -2007,9 +2082,34 @@ async function verifyPatch(
           settings.policy.confidenceThresholds.verify
         )
       : 0;
-  const verifyAllowed = patchConfidence >= verifyThreshold;
+  const automationBlocksVerification =
+    patch.policy.automationMode === 'report_only' || patch.policy.automationMode === 'suggest_only';
+  const verifyAllowed = !automationBlocksVerification && patchConfidence >= verifyThreshold;
   const verifyBlockedReasons = [...patch.blockedReasons];
   const verifyBlockedReasonCodes = [...patch.blockedReasonCodes];
+  if (automationBlocksVerification) {
+    if (
+      patch.policy.automationMode === 'report_only' &&
+      (patch.policy.automationSource === 'legacy_report_only_branch' ||
+        patch.policy.automationSource === 'cli_override')
+    ) {
+      verifyBlockedReasons.push(
+        policyMode === 'report_only'
+          ? 'CLI policyMode=report_only disabled verify execution'
+          : 'branch policy configured report_only verify behavior'
+      );
+      verifyBlockedReasonCodes.push('branch_report_only');
+    } else {
+      const details =
+        patch.policy.automationSource === 'branch_override' && patch.policy.automationPattern
+          ? ` via branch override (${patch.policy.automationPattern})`
+          : '';
+      verifyBlockedReasons.push(
+        `automation mode ${patch.policy.automationMode} disabled verify execution${details}`
+      );
+      verifyBlockedReasonCodes.push('automation_mode_blocked');
+    }
+  }
   if (maxTests > policyCappedMaxTests) {
     verifyBlockedReasons.push(`test budget capped requested ${maxTests} -> ${policyCappedMaxTests}`);
     verifyBlockedReasonCodes.push('test_budget_capped');
@@ -2023,6 +2123,9 @@ async function verifyPatch(
   const verifyPolicyTrace: PolicyTrace = {
     mode: policyMode,
     source: policySource,
+    automationMode: patch.policy.automationMode,
+    automationSource: patch.policy.automationSource,
+    ...(patch.policy.automationPattern ? { automationPattern: patch.policy.automationPattern } : {}),
     applyThreshold: patch.policy.applyThreshold,
     verifyThreshold,
     shouldApply: patch.applied,
@@ -2060,7 +2163,9 @@ async function verifyPatch(
         exitCode: 0,
         status: 'skipped' as const,
         stdout: '',
-        stderr: 'Patch was not applied (confidence threshold or policy block).',
+        stderr: automationBlocksVerification
+          ? `Patch verify skipped by automation mode ${patch.policy.automationMode}.`
+          : 'Patch was not applied (confidence threshold or policy block).',
         blockedReasons: verifyPolicyTrace.blockedReasons,
         blockedReasonCodes: verifyPolicyTrace.blockedReasonCodes,
         policy: verifyPolicyTrace,
@@ -2151,6 +2256,9 @@ async function writeVerificationReport(
     '',
     `- mode: ${payload.policy.mode}`,
     `- source: ${payload.policy.source}`,
+    `- automation mode: ${payload.policy.automationMode}`,
+    `- automation source: ${payload.policy.automationSource}`,
+    `- automation pattern: ${payload.policy.automationPattern ?? 'n/a'}`,
     `- apply threshold: ${payload.policy.applyThreshold.toFixed(2)}`,
     `- verify threshold: ${payload.policy.verifyThreshold?.toFixed(2) ?? 'n/a'}`,
     `- should apply: ${payload.policy.shouldApply ? 'yes' : 'no'}`,
@@ -3232,6 +3340,10 @@ function createDefaultPolicy(): RepoPolicy {
     testBudget: {
       maxTests: 5,
     },
+    automation: {
+      mode: 'guarded_apply',
+      branchOverrides: [],
+    },
   };
 }
 
@@ -3300,17 +3412,63 @@ function matchesGlobLike(inputPath: string, pattern: string) {
   return new RegExp(`^${escaped}$`).test(normalizedPath);
 }
 
+function isAutomationMode(value: unknown): value is AutomationMode {
+  return (
+    value === 'report_only' ||
+    value === 'suggest_only' ||
+    value === 'guarded_apply' ||
+    value === 'auto_apply'
+  );
+}
+
 async function readCurrentBranch(repoPath: string) {
   return execFileAsync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: repoPath })
     .then(({ stdout }) => stdout.trim())
     .catch(() => '');
 }
 
-function isReportOnlyBranch(policy: RepoPolicy, branchName: string) {
+function findLegacyReportOnlyPattern(policy: RepoPolicy, branchName: string) {
   if (!branchName) {
-    return false;
+    return null;
   }
-  return policy.branch.reportOnly.some((pattern) => matchesGlobLike(branchName, pattern));
+  return policy.branch.reportOnly.find((pattern) => matchesGlobLike(branchName, pattern)) ?? null;
+}
+
+function resolveAutomationTrace(
+  settings: RepoSettings,
+  branchName: string,
+  policyMode: PolicyMode
+): { mode: AutomationMode; source: AutomationSource; pattern?: string } {
+  if (policyMode === 'report_only') {
+    return {
+      mode: 'report_only',
+      source: 'cli_override',
+    };
+  }
+
+  for (const override of settings.policy.automation.branchOverrides) {
+    if (matchesGlobLike(branchName, override.pattern)) {
+      return {
+        mode: override.mode,
+        source: 'branch_override',
+        pattern: override.pattern,
+      };
+    }
+  }
+
+  const legacyPattern = findLegacyReportOnlyPattern(settings.policy, branchName);
+  if (legacyPattern) {
+    return {
+      mode: 'report_only',
+      source: 'legacy_report_only_branch',
+      pattern: legacyPattern,
+    };
+  }
+
+  return {
+    mode: settings.policy.automation.mode,
+    source: settings.automationConfigSource,
+  };
 }
 
 function evaluatePatchPolicy(
@@ -3320,6 +3478,7 @@ function evaluatePatchPolicy(
   requestedApply: boolean,
   branchName: string,
   policyMode: PolicyMode,
+  automationTrace: { mode: AutomationMode; source: AutomationSource; pattern?: string },
   applyThresholdOverride?: number
 ) {
   const blockedReasons: string[] = [];
@@ -3330,7 +3489,7 @@ function evaluatePatchPolicy(
     policy.patchAllow.some((pattern) => matchesGlobLike(normalizedTarget, pattern));
   const denyHit = policy.patchDeny.some((pattern) => matchesGlobLike(normalizedTarget, pattern));
   const protectedHit = policy.protectedFiles.some((pattern) => matchesGlobLike(normalizedTarget, pattern));
-  const reportOnly = policyMode === 'report_only' || isReportOnlyBranch(policy, branchName);
+  const automationMode = automationTrace.mode;
   const applyThreshold =
     policyMode === 'enforce' || policyMode === 'auto'
       ? clamp01(applyThresholdOverride ?? policy.confidenceThresholds.apply, policy.confidenceThresholds.apply)
@@ -3348,13 +3507,26 @@ function evaluatePatchPolicy(
     blockedReasons.push(`target file matched protected file rule (${normalizedTarget})`);
     blockedReasonCodes.push('protected_file');
   }
-  if (reportOnly) {
-    blockedReasons.push(
-      policyMode === 'report_only'
-        ? 'CLI policyMode=report_only disabled apply'
-        : `branch ${branchName} is configured as report_only`
-    );
-    blockedReasonCodes.push('branch_report_only');
+  if (automationMode === 'suggest_only') {
+    blockedReasons.push('automation mode suggest_only disabled patch apply');
+    blockedReasonCodes.push('automation_mode_blocked');
+  }
+  if (automationMode === 'report_only') {
+    if (automationTrace.source === 'legacy_report_only_branch' || automationTrace.source === 'cli_override') {
+      blockedReasons.push(
+        policyMode === 'report_only'
+          ? 'CLI policyMode=report_only disabled apply'
+          : `branch ${branchName} is configured as report_only`
+      );
+      blockedReasonCodes.push('branch_report_only');
+    } else {
+      const sourceDetails =
+        automationTrace.source === 'branch_override' && automationTrace.pattern
+          ? ` via branch override (${automationTrace.pattern})`
+          : '';
+      blockedReasons.push(`automation mode report_only disabled patch apply${sourceDetails}`);
+      blockedReasonCodes.push('automation_mode_blocked');
+    }
   }
   if (requestedApply && confidence < applyThreshold) {
     blockedReasons.push(
@@ -3365,6 +3537,9 @@ function evaluatePatchPolicy(
 
   return {
     mode: policyMode,
+    automationMode,
+    automationSource: automationTrace.source,
+    automationPattern: automationTrace.pattern,
     applyThreshold,
     blockedReasons,
     blockedReasonCodes,
@@ -3405,6 +3580,7 @@ async function loadRepoSettings(repoPath: string): Promise<RepoSettings> {
     sourceDirectories: ['src'],
     policy: createDefaultPolicy(),
     policySource: 'default',
+    automationConfigSource: 'default',
   };
 
   const ignoreFile = await readFile(join(repoPath, '.autoqaignore'), 'utf8').catch(() => '');
@@ -3443,12 +3619,33 @@ async function loadRepoSettings(repoPath: string): Promise<RepoSettings> {
         testBudget?: {
           maxTests?: number;
         };
+        automation?: {
+          mode?: AutomationMode;
+          branchOverrides?: Array<{
+            pattern?: string;
+            mode?: AutomationMode;
+          }>;
+        };
       };
     }>;
 
     const parsedPolicy = parsed.policy ?? {};
     const basePolicy = createDefaultPolicy();
     const hasPolicyConfig = Boolean(parsed.policy && typeof parsed.policy === 'object');
+    const parsedAutomationMode = isAutomationMode(parsedPolicy.automation?.mode)
+      ? parsedPolicy.automation?.mode
+      : basePolicy.automation.mode;
+    const parsedBranchOverrides = Array.isArray(parsedPolicy.automation?.branchOverrides)
+      ? parsedPolicy.automation?.branchOverrides
+          .filter((entry): entry is { pattern: string; mode: AutomationMode } =>
+            Boolean(entry?.pattern) && isAutomationMode(entry?.mode)
+          )
+          .map((entry) => ({
+            pattern: entry.pattern.trim(),
+            mode: entry.mode,
+          }))
+          .filter((entry) => entry.pattern.length > 0)
+      : basePolicy.automation.branchOverrides;
     const policy: RepoPolicy = {
       patchAllow: Array.isArray(parsedPolicy.patchAllow) ? parsedPolicy.patchAllow : basePolicy.patchAllow,
       patchDeny: Array.isArray(parsedPolicy.patchDeny) ? parsedPolicy.patchDeny : basePolicy.patchDeny,
@@ -3471,6 +3668,10 @@ async function loadRepoSettings(repoPath: string): Promise<RepoSettings> {
             ? Math.max(1, Math.min(50, Math.floor(parsedPolicy.testBudget.maxTests)))
             : basePolicy.testBudget.maxTests,
       },
+      automation: {
+        mode: parsedAutomationMode,
+        branchOverrides: parsedBranchOverrides,
+      },
     };
 
     const settings: RepoSettings = {
@@ -3483,6 +3684,10 @@ async function loadRepoSettings(repoPath: string): Promise<RepoSettings> {
         : defaultSettings.sourceDirectories,
       policy,
       policySource: hasPolicyConfig ? 'repo_config' : 'default',
+      automationConfigSource:
+        parsed.policy?.automation && typeof parsed.policy.automation === 'object'
+          ? 'repo_config'
+          : 'default',
     };
     setCachedValue(repoSettingsCache, repoPath, settings);
     return settings;

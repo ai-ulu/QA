@@ -80,6 +80,12 @@ Policy config (`autoqa.config.json`):
     },
     "testBudget": {
       "maxTests": 3
+    },
+    "automation": {
+      "mode": "guarded_apply",
+      "branchOverrides": [
+        { "pattern": "release/*", "mode": "report_only" }
+      ]
     }
   }
 }
@@ -94,10 +100,18 @@ Behavior:
 - `autoqa_suggest_patch` ciktilarinda `policy` objesi de doner:
   - `mode`
   - `source`
+  - `automationMode`
+  - `automationSource`
+  - `automationPattern`
   - `applyThreshold`
   - `shouldApply`
   - `blockedReasons`
   - `blockedReasonCodes`
+- Safety mode davranisi:
+  - `report_only`: patch apply ve run/verify execution bloklanir
+  - `suggest_only`: patch apply ve run/verify execution bloklanir
+  - `guarded_apply`: policy threshold + protected file kurallariyla calisir
+  - `auto_apply`: apply istemi verilmemisse bile apply dener, ama threshold/protected kurallarini asamaz
 - CLI override:
   - `policyMode: "report_only"` -> repo config ne olursa olsun apply kapatilir.
   - `policyMode: "enforce"` -> policy kurallari zorunlu uygulanir.

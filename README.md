@@ -110,6 +110,8 @@ Policy engine (`autoqa.config.json`):
 - `policy.confidenceThresholds.suggest|apply|verify`
 - `policy.branch.reportOnly` (or: `main`, `release/*`)
 - `policy.testBudget.maxTests`
+- `policy.automation.mode` (`report_only|suggest_only|guarded_apply|auto_apply`)
+- `policy.automation.branchOverrides` (branch pattern bazli mode override)
 
 Policy aktifken:
 
@@ -122,6 +124,10 @@ Policy aktifken:
   - `default`
   - `repo_config`
   - `cli_override`
+- `policy` alaninda automation trace de doner:
+  - `automationMode`
+  - `automationSource`
+  - `automationPattern`
 - `autoqa_ci_summary` clean diff durumlarinda `no_changes` status'u ile graceful ozet doner.
 - V3 WS1 ile stable reason-code sinyali:
   - `blockedReasonCodes` (`suggest`, `execute`, `verify`)

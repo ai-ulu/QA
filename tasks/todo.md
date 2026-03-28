@@ -9,28 +9,30 @@ Kaynak backlog:
 
 ## Current Focus
 
-V3 kickoff - WS1 Output Contract Unification
+V3 WS4 - Safety Modes (config + branch override + explicit trace)
 
 ## Spec
 
 Hedef:
-`suggest`, `execute`, `verify` ve `ci_summary` ciktilarinda ortak reason-code sinyali ile daha deterministik tanilama yuzeyi olusturmak.
+Config seviyesinden enforce edilen safety mode davranisi eklemek:
+`report_only`, `suggest_only`, `guarded_apply`, `auto_apply`.
 
 Basari kosulu:
 
-- ortak reason-code taksonomisi tanimli ve dokumante
-- `ci_summary` no-change ve warning durumlarini kodlu sekilde raporluyor
-- mevcut policy reason-code kontrati korunuyor (geriye donuk uyumluluk)
-- smoke test reason-code varligini assert ediyor
+- safety mode ayari `autoqa.config.json` icinden calisiyor
+- branch pattern bazli override deterministic calisiyor
+- `suggest`, `execute`, `verify` ciktilarinda automation trace gorunuyor
+- `auto_apply` protected-file ve threshold kurallarini bypass etmiyor
+- smoke test mode matrisini assert ediyor
 
 ## Plan
 
-1. `[x]` Ortak reason-code taksonomisini kod seviyesinde tanimla.
-2. `[x]` `targeted_run_plan` warning sinyallerine reason code ekle.
-3. `[x]` `ci_summary` sonucuna reason code alanini ekle (`no_changes` + warningler).
-4. `[x]` Smoke testleri reason-code assertleri ile guncelle.
-5. `[x]` Reason-code dokumani ve README referanslarini ekle.
-6. `[x]` `pnpm test`, `pnpm build`, `pnpm run v2:gate` ile dogrula.
+1. `[x]` Policy modeline `automation.mode` ve `automation.branchOverrides` ekle.
+2. `[x]` `suggest_patch` akisina safety mode uygulamasi ve automation trace ekle.
+3. `[x]` `execute_run_plan` ve `verify_patch` akislarinda mode bloklama ve trace'i uygula.
+4. `[x]` Smoke fixture'da `suggest_only`, `auto_apply`, branch override ve bypass guard assertlerini ekle.
+5. `[x]` Reason-code/operator dokumanlarini safety mode bilgisiyle guncelle.
+6. `[x]` `pnpm build`, `pnpm test`, `pnpm run v2:gate` ile dogrula.
 
 ## Verification
 
@@ -39,8 +41,9 @@ Basari kosulu:
   - `pnpm build`
   - `pnpm run v2:gate`
 - Beklenen kanit:
-  - `ci_summary` payload'inda `reasonCodes` alaninin dolu geldigine dair smoke assert
-  - no-change path icin reason code assert'i
+  - `suggest_only` modunda apply ve run execution bloklanmasi
+  - `auto_apply` modunda apply denemesi + protected/threshold guard'larin calismasi
+  - payload `policy.automationMode|automationSource|automationPattern` alanlari
   - build + smoke + gate komutlarinin yesil cikmasi
 - Gecen komutlar:
   - `pnpm build`
@@ -52,4 +55,5 @@ Basari kosulu:
 Durum:
 
 - V2 hardening tamamlandi (onceki sprint).
-- V3 WS1 reason-code standardizasyonu tamamlandi ve testlerle dogrulandi.
+- V3 WS1 tamamlandi.
+- V3 WS4 implementation tamamlandi ve dogrulandi.

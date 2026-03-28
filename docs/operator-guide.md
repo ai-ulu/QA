@@ -62,6 +62,11 @@ Useful inputs:
 - `applyThresholdOverride`
 - `verifyThresholdOverride`
 
+Repo-level safety mode controls (`autoqa.config.json`):
+
+- `policy.automation.mode`: `report_only | suggest_only | guarded_apply | auto_apply`
+- `policy.automation.branchOverrides`: branch pattern bazli mode override
+
 ## 6. Inspect local repo memory
 
 ```bash
@@ -81,3 +86,5 @@ Memory location:
   - inspect `policy.blockedReasons` and `policy.blockedReasonCodes`.
 - Unexpected dry-run:
   - check `policy.source` to see whether the decision came from CLI override, repo config, or defaults.
+- Execution skipped unexpectedly:
+  - inspect `policy.automationMode`, `policy.automationSource`, and `policy.automationPattern`.

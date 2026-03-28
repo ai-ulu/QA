@@ -51,3 +51,6 @@ Bu dosya tekrar eden hatalari azaltmak icin kalici calisma derslerini tutar.
 
 16. Policy kararlarinda sadece metin degil kaynak ve kod da don.
     `blockedReasons` tek basina yeterli degil; `source` ve stable `blockedReasonCodes` alanlari olmadan kullanici "bu karar nereden geldi?" sorusunu net cevaplayamaz.
+
+17. Smoke fixture'da `auto_apply` mode etkisini izole etmeden sonraki adima gecme.
+    `auto_apply`, `apply: false` cagrilarinda bile dosya mutate edebilecegi icin fixture adimlarinin sonraki beklentilerini bozabilir; bu moddan sonra config'i `guarded_apply`'a cekmek veya fixture dosyasini explicit resetlemek gerekir.
