@@ -4,11 +4,6 @@ on:
   schedule:
     - cron: '15 1 * * *'
   workflow_dispatch:
-    inputs:
-      limit:
-        description: Optional repository limit for ad-hoc runs
-        required: false
-        default: ''
 
 permissions:
   contents: read
@@ -45,12 +40,7 @@ jobs:
         id: dogfood
         shell: bash
         run: |
-          LIMIT_INPUT="${{ github.event.inputs.limit }}"
-          if [ -n "$LIMIT_INPUT" ]; then
-            pnpm --filter @autoqa/mcp-server dogfood -- --repos-file "${{ github.workspace }}/dogfood.repos.json" --limit "$LIMIT_INPUT" --soft-fail
-          else
-            pnpm dogfood:nightly
-          fi
+          pnpm dogfood:nightly
           echo "report_md=packages/mcp-server/reports/autoqa-dogfood-latest.md" >> "$GITHUB_OUTPUT"
           echo "report_json=packages/mcp-server/reports/autoqa-dogfood-latest.json" >> "$GITHUB_OUTPUT"
 
