@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   dogfood-nightly:
@@ -25,3 +25,23 @@ jobs:
           pnpm install --frozen-lockfile
           pnpm dogfood:nightly
           cat packages/mcp-server/reports/autoqa-dogfood-latest.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Publish nightly release assets
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="autoqa-dogfood-nightly-$(date -u +%Y%m%d)"
+          title="AutoQA Dogfood Nightly $(date -u +%Y-%m-%d)"
+          notes="Nightly dogfood report for ${GITHUB_REPOSITORY} at ${GITHUB_SHA}."
+          assets=(
+            "packages/mcp-server/reports/autoqa-dogfood-latest.md"
+            "packages/mcp-server/reports/autoqa-dogfood-latest.json"
+          )
+
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release upload "$tag" "${assets[@]}" --clobber
+          else
+            gh release create "$tag" "${assets[@]}" --title "$title" --notes "$notes" --target "$GITHUB_SHA"
+          fi
