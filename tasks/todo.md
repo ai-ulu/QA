@@ -9,7 +9,7 @@ Kaynak backlog:
 
 ## Current Focus
 
-Pilot Day 3 - run lanes execution next
+Pilot Day 3 - maintenance lane runtime (`rush` command) blocker cozum sirada
 
 ## Spec
 
@@ -32,7 +32,8 @@ Basari kosulu:
 5. `[x]` dokumanlari gozden gecir, commit et, push et.
 6. `[x]` Day 1 icin secilen repo pack uzerinden baseline toplama adimini baslat.
 7. `[x]` Day 2 baseline'i 5-10 failure/retry run detay analizi ile derinlestir.
-8. `[ ]` Day 3 icin bir maintenance-lane (`tmp_flowgram`) ve iki report-only lane (`QA`, `frontend`) calistir.
+8. `[x]` Day 3 icin bir maintenance-lane (`tmp_flowgram`) ve iki report-only lane (`QA`, `frontend`) calistir.
+9. `[ ]` `tmp_flowgram` icin `rush` runtime engelini gider ve maintenance lane'i yeniden kos.
 
 ## Verification
 
@@ -45,6 +46,8 @@ Basari kosulu:
   - `docs/pilot-templates.md` icinde takip ve go/no-go sablonlari olmali
   - `docs/pilot-day2-baseline.md` icinde ic repo CI baseline snapshot olmali
   - `docs/pilot-day2-deep-dive.md` icinde run bazli siniflandirma olmali
+  - `docs/pilot-day3-execution.md` icinde lane bazli sonuc ve blocker kaydi olmali
+  - `tmp_flowgram` maintenance lane'de komut uretimi ve runtime blocker ayrik kanitlanmis olmali
 - Gecen komutlar:
   - local workspace Playwright scan
 

@@ -3787,17 +3787,25 @@ function resolvePlaywrightCliPath(repoPath: string) {
   let current = resolve(repoPath);
 
   while (true) {
-    const candidate = join(current, 'node_modules', 'playwright', 'cli.js');
-    try {
-      require.resolve(candidate);
-      return candidate;
-    } catch {
-      const parent = dirname(current);
-      if (parent === current) {
-        break;
+    const candidates = [
+      join(current, 'node_modules', 'playwright', 'cli.js'),
+      join(current, 'node_modules', '@playwright', 'test', 'cli.js'),
+    ];
+
+    for (const candidate of candidates) {
+      try {
+        require.resolve(candidate);
+        return candidate;
+      } catch {
+        // Continue searching parent directories.
       }
-      current = parent;
     }
+
+    const parent = dirname(current);
+    if (parent === current) {
+      break;
+    }
+    current = parent;
   }
 
   throw new Error('Could not resolve Playwright CLI from the repository or workspace');

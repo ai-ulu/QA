@@ -67,3 +67,7 @@ Bu dosya tekrar eden hatalari azaltmak icin kalici calisma derslerini tutar.
     Nightly workflow shell-only, release asset veya dispatch behavior olarak degistiginde `README.md`, `DOGFOOD.md` ve package README ayni anda senkronlanmali; aksi halde urun hikayesi ile gercek calisma modu birbirini yalanlar.
 22. PowerShell ortaminda `gh api --jq` filtrelerini kirilgan quote zinciriyle kurma.
     `select(.conclusion=="failure")` gibi filtreler PowerShell tarafinda bozulabiliyor; bu durumda ham JSON'u `ConvertFrom-Json` ile parse edip PowerShell `Where-Object` ile filtrelemek daha deterministic ve hata ayiklamasi kolay bir yoldur.
+23. Monorepo veya alt-paket odakli pilotlarda run-plan execution oncesi Playwright CLI cozumlemesini dogrula.
+    `impact` ve `targeted_run_plan` basarili olsa bile `execute_run_plan` repo kokunde CLI bulamayabilir; Day 3 benzeri akislarda once hedef path'te `playwright` cozumlenebildigini kontrol et, sonra maintenance lane kanitini topla.
+24. Playwright CLI cozumlemesinde `playwright` paketi kadar `@playwright/test` yolunu da destekle.
+    Bazi repolarda sadece `@playwright/test` kuruludur ve `node_modules/playwright/cli.js` yoktur; run-plan execution'in yalanci negatif vermemesi icin `node_modules/@playwright/test/cli.js` fallback'i zorunludur.

@@ -82,6 +82,7 @@ Roadmap:
 - [Pilot Templates](docs/pilot-templates.md)
 - [Pilot Day 2 Baseline](docs/pilot-day2-baseline.md)
 - [Pilot Day 2 Deep Dive](docs/pilot-day2-deep-dive.md)
+- [Pilot Day 3 Execution](docs/pilot-day3-execution.md)
 
 ## MCP Surface
 
