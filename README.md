@@ -81,6 +81,7 @@ Roadmap:
 - [Pilot Sourcing And Messaging](docs/pilot-sourcing-and-messaging.md)
 - [Pilot Templates](docs/pilot-templates.md)
 - [Pilot Day 2 Baseline](docs/pilot-day2-baseline.md)
+- [Pilot Day 2 Deep Dive](docs/pilot-day2-deep-dive.md)
 
 ## MCP Surface
 

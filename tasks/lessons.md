@@ -65,3 +65,5 @@ Bu dosya tekrar eden hatalari azaltmak icin kalici calisma derslerini tutar.
     `actions/checkout` gibi standart gorunen `uses:` adimlari startup_failure uretebildigi icin workflow'u once shell-only olarak ayağa kaldir, sonra tek tek adim ekleyerek bisection yap.
 21. Workflow davranisi degisince operator dokumanlarini ayni turda guncelle.
     Nightly workflow shell-only, release asset veya dispatch behavior olarak degistiginde `README.md`, `DOGFOOD.md` ve package README ayni anda senkronlanmali; aksi halde urun hikayesi ile gercek calisma modu birbirini yalanlar.
+22. PowerShell ortaminda `gh api --jq` filtrelerini kirilgan quote zinciriyle kurma.
+    `select(.conclusion=="failure")` gibi filtreler PowerShell tarafinda bozulabiliyor; bu durumda ham JSON'u `ConvertFrom-Json` ile parse edip PowerShell `Where-Object` ile filtrelemek daha deterministic ve hata ayiklamasi kolay bir yoldur.
