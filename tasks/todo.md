@@ -9,7 +9,7 @@ Kaynak backlog:
 
 ## Current Focus
 
-Pilot Day 1 - repo pack locked, baseline capture next
+Pilot Day 2 - baseline snapshot captured, deep dive next
 
 ## Spec
 
@@ -30,7 +30,8 @@ Basari kosulu:
 3. `[x]` dis repo sourcing rubrigi ve buyer messaging matrisini yaz.
 4. `[x]` repo takip / gunluk log / go-no-go sablonlarini ekle.
 5. `[x]` dokumanlari gozden gecir, commit et, push et.
-6. `[ ]` Day 1 icin secilen repo pack uzerinden baseline toplama adimini baslat.
+6. `[x]` Day 1 icin secilen repo pack uzerinden baseline toplama adimini baslat.
+7. `[ ]` Day 2 baseline'i 5-10 failure/retry run detay analizi ile derinlestir.
 
 ## Verification
 
@@ -41,6 +42,7 @@ Basari kosulu:
   - `docs/pilot-plan.md` icinde 7 gunluk plan ve ic repo listesi olmali
   - `docs/pilot-sourcing-and-messaging.md` icinde sourcing ve buyer ayrimi olmali
   - `docs/pilot-templates.md` icinde takip ve go/no-go sablonlari olmali
+  - `docs/pilot-day2-baseline.md` icinde ic repo CI baseline snapshot olmali
 - Gecen komutlar:
   - local workspace Playwright scan
 
