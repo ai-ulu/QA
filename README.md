@@ -1,154 +1,105 @@
-# AutoQA MCP
+# AutoQA MCP v2.1.0
 
-This repository now evaluates one product only:
+<p align="center">
+  <strong>AI-Powered Quality Assurance & Web Security Scanner</strong><br>
+  <em>Scan repos, analyze impact, suggest patches, run Playwright tests, audit web security — all via MCP</em>
+</p>
 
-- a local MCP server
-- for AI coding clients
-- that can scan repos, read code diffs, analyze change impact, suggest safe patches, execute targeted Playwright runs, verify patches, and produce CI summaries
+<p align="center">
+  <img src="https://img.shields.io/badge/version-2.1.0-blue?style=for-the-badge" alt="Version 2.1.0">
+  <img src="https://img.shields.io/badge/MCP-Streamable_HTTP-green?style=for-the-badge" alt="MCP Streamable HTTP">
+  <img src="https://img.shields.io/badge/Cloudflare-Pages-orange?style=for-the-badge" alt="Cloudflare Pages">
+  <img src="https://img.shields.io/badge/License-MIT-success?style=for-the-badge" alt="MIT License">
+</p>
 
-Everything outside the MCP path has been removed on purpose.
+---
 
-## Commands
+## 🚀 Live Endpoint
 
-```bash
-pnpm install
-pnpm build
-pnpm test
-pnpm onboard:mcp
-pnpm pr:comment -- --repo . --dry-run
-pnpm memory:inspect
-pnpm memory:reset
-pnpm v2:gate
-pnpm ci:impact
-pnpm release:check
-pnpm dogfood
-pnpm dogfood:nightly
-pnpm start
-node packages/mcp-server/scripts/ci-impact.mjs --repo . --auto-base --format github
+```
+https://autoqa-mcp.pages.dev/mcp
 ```
 
-`pnpm test` runs an MCP smoke test that verifies:
+Connect any MCP-compatible client (Claude Desktop, Cursor, VS Code Copilot, etc.) using **Streamable HTTP** transport.
 
-- server startup over stdio
-- tool discovery
-- repository scanning
-- change impact analysis
-- automatic merge-base analysis for the current branch
-- semantic git diff analysis for selector and text renames
-- working tree analysis before commit, including staged and unstaged changes
-- untracked file analysis in working tree mode
-- git diff based PR summary generation
-- CI-friendly QA summaries
-- a ready-to-copy GitHub Actions workflow at `.github/workflows/autoqa-impact.yml`
-- targeted run planning
-- diff-aware patch suggestion
-- confidence levels and patch apply gating
-- patch rollback payloads
-- repo-level `.autoqaignore` and `autoqa.config.json` support
-- safe file patching with dry-run diff previews
-- targeted Playwright run execution
-- patch verification reports
-- onboarding docs for Codex, Cursor, and Claude Desktop
-- dogfood report across a curated 12-repo Playwright pack
+## 🛠️ Tools (10)
 
-`pnpm dogfood` now treats `.dogfood/` as a temporary workspace and cleans cloned repos by default. Use `--keep-clones` only when you need to inspect a cloned target after the run.
+| # | Tool | Description |
+|---|------|-------------|
+| 1 | `autoqa_scan_repo` | Scan repository structure and identify quality issues |
+| 2 | `autoqa_patch_file` | Apply a patch to a specific file in the repo |
+| 3 | `autoqa_suggest_patch` | Get AI-suggested patch recommendations for issues |
+| 4 | `autoqa_impact_analysis` | Analyze the impact of code changes across the codebase |
+| 5 | `autoqa_pr_summary` | Generate a comprehensive PR summary with risk assessment |
+| 6 | `autoqa_targeted_run_plan` | Create a targeted test run plan based on changed files |
+| 7 | `autoqa_execute_run_plan` | Execute a Playwright test run plan and collect results |
+| 8 | `autoqa_verify_patch` | Verify that a patch resolves the intended issue |
+| 9 | `autoqa_ci_summary` | Generate CI/CD pipeline summary and status report |
+| 10 | `autoqa_web_audit` | Perform comprehensive web security and performance audit |
 
-`pnpm dogfood:nightly` runs the curated pack in `--soft-fail` mode and writes structured local reports:
+## 📦 Installation
 
-- `packages/mcp-server/reports/autoqa-dogfood-latest.md`
-- `packages/mcp-server/reports/autoqa-dogfood-latest.json`
+### Claude Desktop Configuration
 
-The current GitHub Actions workflow publishes the markdown report to the step summary. Artifact upload is still a follow-up task.
+```json
+{
+  "mcpServers": {
+    "autoqa": {
+      "url": "https://autoqa-mcp.pages.dev/mcp"
+    }
+  }
+}
+```
 
-`pnpm ci:impact` prefers branch diff analysis with `--auto-base`. If there is no committed diff to compare, it falls back to working tree analysis instead of failing with a parse error.
+### Cursor / VS Code
 
-`pnpm onboard:mcp` performs one-command local onboarding and writes MCP config for Codex, VS Code, Cursor, and Claude Desktop. Use `--dry-run` to preview.
+Add to your MCP settings:
+```json
+{
+  "mcp": {
+    "servers": {
+      "autoqa": {
+        "url": "https://autoqa-mcp.pages.dev/mcp",
+        "transport": "streamable-http"
+      }
+    }
+  }
+}
+```
 
-Operator guide:
+## 🔧 Local Development
 
-- [5-minute operator guide](docs/operator-guide.md)
-- [Reason code taxonomy](docs/reason-codes.md)
+```bash
+# Install dependencies
+pnpm install
 
-Required CI workflow:
+# Build
+pnpm build
 
-- [AutoQA Quality Gates](.github/workflows/autoqa-quality-gates.yml)
-- [AutoQA Dogfood Nightly](.github/workflows/autoqa-dogfood-nightly.yml)
+# Deploy to Cloudflare Pages
+pnpm deploy
 
-Roadmap:
+# Run locally
+pnpm start
+```
 
-- [V3 Execution Plan](V3_EXECUTION_PLAN.md)
+## 🏗️ Architecture
 
-## MCP Surface
+- **Runtime**: Cloudflare Workers (Edge)
+- **Database**: Cloudflare D1 (SQLite)
+- **Transport**: MCP Streamable HTTP
+- **Protocol**: JSON-RPC 2.0
 
-Primary tools:
+## 📋 Version History
 
-- `autoqa_scan_repo`
-- `autoqa_impact_analysis`
-- `autoqa_suggest_patch`
-- `autoqa_patch_file`
-- `autoqa_targeted_run_plan`
-- `autoqa_execute_run_plan`
-- `autoqa_verify_patch`
-- `autoqa_pr_summary`
-- `autoqa_ci_summary`
+| Version | Changes |
+|---------|---------|
+| v2.1.0 | Added `autoqa_web_audit` (Web Bekçisi) — OWASP Top 10 scanning, performance audit, SEO analysis |
+| v2.0.0 | Migrated to Cloudflare Pages, streamable-http transport, D1 database |
+| v1.0.0 | Initial release with core QA tools |
 
-PR comment helper:
+---
 
-- `pnpm pr:comment -- --repo . --pr <number>`
-- `pnpm pr:comment -- --repo . --dry-run`
-- `pnpm pr:comment -- --repo . --report-only`
-
-Artifact-aware patching:
-
-- `autoqa_suggest_patch` ve `autoqa_verify_patch` artik `reportDir` ve `artifactPaths` argumanlarini kabul eder.
-- Ornek:
-  - `reportDir`: `test-results` veya `playwright-report` altindaki hata ciktilari
-  - `artifactPaths`: tekil dosya yollari (or. `test-results/login/error-context.md`)
-- Bu girdilerden cikan sinyaller `evidenceUsed` alaninda doner ve patch confidence hesaplamasina etki eder.
-
-Repo memory:
-
-- `autoqa_verify_patch` her calisma sonunda `.autoqa/state/memory.json` dosyasini gunceller.
-- Memory icinde pattern bazli ogrenme istatistikleri tutulur (`patternStats`).
-- `autoqa_execute_run_plan` ve `autoqa_verify_patch` metrikleri `.autoqa/state/metrics.json` dosyasina yazar.
-- `pnpm memory:inspect` ile memory ozetini inceleyebilirsin.
-- `pnpm memory:reset` ile local memory dosyasini sifirlayabilirsin.
-- Dosya local state oldugu icin `.gitignore` icinde tutulur.
-
-Policy engine (`autoqa.config.json`):
-
-- `policy.patchAllow`, `policy.patchDeny`, `policy.protectedFiles`
-- `policy.confidenceThresholds.suggest|apply|verify`
-- `policy.branch.reportOnly` (or: `main`, `release/*`)
-- `policy.testBudget.maxTests`
-- `policy.automation.mode` (`report_only|suggest_only|guarded_apply|auto_apply`)
-- `policy.automation.branchOverrides` (branch pattern bazli mode override)
-
-Policy aktifken:
-
-- `apply: true` olsa bile block varsa patch apply edilmez, dry-run doner.
-- `verify_patch` ve `execute_run_plan` test secimini policy test butcesi ile sinirlar.
-- Block nedeni ciktiya acik metin olarak yazilir (`Blocked by policy`).
-- `autoqa_suggest_patch` sonucu `blockedReasons` alanini da verir.
-- `autoqa_suggest_patch` sonucu ayrica structured `policy` alani verir (`mode`, `applyThreshold`, `shouldApply`, `blockedReasons`).
-- `autoqa_suggest_patch`, `autoqa_execute_run_plan`, `autoqa_verify_patch` kararlarinda `policy.source` alanini verir:
-  - `default`
-  - `repo_config`
-  - `cli_override`
-- `policy` alaninda automation trace de doner:
-  - `automationMode`
-  - `automationSource`
-  - `automationPattern`
-- `autoqa_ci_summary` clean diff durumlarinda `no_changes` status'u ile graceful ozet doner.
-- `autoqa_ci_summary` memory confidence hint sinyali de verir (`confidenceHint`, `confidenceExplanation`).
-- V3 WS1 ile stable reason-code sinyali:
-  - `blockedReasonCodes` (`suggest`, `execute`, `verify`)
-  - `warningCodes` (`targeted_run_plan`)
-  - `reasonCodes` (`ci_summary`)
-- CLI override ile `policyMode: report_only|enforce|auto` secilebilir.
-
-## Scope
-
-This is no longer a general QA platform or SaaS monorepo.
-
-It is a narrow MCP-first maintenance copilot. The primary flow is now `scan -> impact -> suggest/apply -> execute -> verify -> ci summary`.
+<p align="center">
+  Built by <a href="https://github.com/ai-ulu">ai-ulu</a> · Part of the MCP Toolkit
+</p>
