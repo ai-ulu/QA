@@ -1,0 +1,38 @@
+# Smithery configuration for AutoQA MCP Server
+# https://smithery.ai/docs/config#smitheryyaml
+
+startCommand:
+  type: stdio
+  configSchema:
+    type: object
+    required: []
+    properties:
+      autoqaApiKey:
+        type: string
+        description: "AutoQA API key for authentication (optional - works without key in demo mode)"
+      maxAuditDepth:
+        type: number
+        default: 10
+        description: "Maximum crawl depth for web audits"
+      enableAccessibilityChecks:
+        type: boolean
+        default: true
+        description: "Enable WCAG accessibility checks during audits"
+      enablePerformanceChecks:
+        type: boolean
+        default: true
+        description: "Enable Core Web Vitals performance checks"
+  commandFunction: |-
+    (config) => ({
+      command: 'node',
+      args: ['dist/_worker.js'],
+      env: {
+        AUTOQA_API_KEY: config.autoqaApiKey || '',
+        MAX_AUDIT_DEPTH: String(config.maxAuditDepth || 10),
+        ENABLE_A11Y: config.enableAccessibilityChecks ? 'true' : 'false',
+        ENABLE_PERF: config.enablePerformanceChecks ? 'true' : 'false'
+      }
+    })
+remotes:
+  - type: streamable-http
+    url: "https://autoqa-mcp.pages.dev/mcp"
