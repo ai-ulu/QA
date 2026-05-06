@@ -996,7 +996,7 @@ export default {
 
       if (request.method === 'POST') {
         const accept = request.headers.get('Accept') || '';
-        if (!accept.includes('application/json') && !accept.includes('text/event-stream')) {
+        if (!accept.includes('application/json') && !accept.includes('text/event-stream') && accept !== '' && accept !== '*/*' && !accept.includes('*/*')) {
           return Response.json(
             { jsonrpc: '2.0', error: { code: -32000, message: 'Not Acceptable: Client must accept both application/json and text/event-stream' }, id: null },
             { status: 406 }
